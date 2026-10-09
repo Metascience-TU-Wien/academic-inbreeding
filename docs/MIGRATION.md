@@ -35,3 +35,35 @@ The source project is `name-matching-playground`, managed with Poetry. The targe
 ## Later phases
 
 Migrate application modules and tests only after the dependency foundation is verified. Preserve matching and disambiguation behavior, and compare outputs against the source implementation using representative fixtures and datasets before considering each stage complete.
+
+## Phase 2 — `name_matching` code migration
+
+### Status
+
+- The matching package, stage-specific TOML configuration, and runnable CLI workflow have been migrated. Test migration and behavioral-equivalence verification remain pending explicit approval.
+- The original repository remains read-only. Existing target changes were left untouched.
+
+### Architectural decisions
+
+- Added the stage package `src/acib/name_matching/` for matching algorithms and its TOML configuration model.
+- Added `scripts/match_author_names.py` as the legacy-style script entry point, the `match-author-names` project command, and `python -m acib.name_matching`. Added a target `config/pipeline.toml` containing only the original `[name_matching]` table; later stages' settings are intentionally not copied in this stage.
+- Added `src/acib/common/names.py` for name normalization, splitting, surname compatibility/blocking, given-name compatibility, aliases, and compound matching. These primitives have no stage imports and use only the standard library plus optional `regex` (with the original standard-library fallback).
+- Kept stage-specific token fuzzy matching, dataframe joins, priority assignment, and result structures inside `acib.name_matching`.
+- Did not add imports from future pipeline stage packages. Existing target repository uses an `acib` package scaffold; no `AGENTS.md` or `docs/ARCHITECTURE.md` was present during this migration.
+
+### Implementation and behavior notes
+
+- Migrated the exact, containment, guarded fuzzy, and conservative compound matching paths, including match priorities (1–4), the 90 fuzzy score threshold, the two-token and 0.8 overlap guards, and researcher/author de-duplication.
+- Added the name-matching TOML settings model and loader. It retains the source keys/defaults, expands environment/user paths, and resolves relative input/output paths from the project root.
+- The workflow includes source-specific Scopus/OpenAlex organization maps, Scopus parent-affiliation normalization, existing Scopus ID passthrough, matching, stable output sorting, and CSV writing. It does not yet reproduce all original source formatting/variant behavior (notably OpenAlex alternative-name expansion and the complete Scopus/OpenAlex name-formatting path) or inferred ASJC enrichment. These remain code-migration limitations; behavior equivalence is not claimed.
+- Default and relative config paths resolve from the project root rather than the process working directory, so the script works when launched with `scripts/` as its working directory. The workflow refuses to write output beneath the read-only `name-matching-playground` sibling repository.
+- Shared name behavior was checked against its original consumers: the disambiguation parser, name scoring, gender utilities, and matching implementation use the same normalization/splitting/compatibility semantics. The shared module is independent of pandas and stage configuration.
+- Reuse opportunity for the next stage: migrate disambiguation imports of `normalize_person_name`, `split_name`, `given_name_compatible`, and `surname_compatible` to `acib.common.names` rather than recopying those implementations. Future-stage organization/path utilities were not generalized.
+- Code migration does not imply test completion. Original tests have not been copied or changed; output comparison is reserved for the approval-gated test phase.
+
+### Verification
+
+- `./.venv/bin/ruff check src/acib/common src/acib/name_matching` passed.
+- `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/common src/acib/name_matching` passed with no type errors. Mypy reported unused module-specific configuration sections because this scoped invocation did not analyze those modules.
+- The module entry point's `--help` smoke check passed using temporary package injection for missing runtime dependencies; it did not run the matching pipeline or validate output equivalence.
+- Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel --out-dir /tmp/opencode` and `uv run /home/chri/PycharmProjects/academic-inbreeding/.venv/bin/python /home/chri/PycharmProjects/academic-inbreeding/scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
