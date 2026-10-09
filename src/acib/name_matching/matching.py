@@ -438,6 +438,18 @@ def _possibilities(researchers: pd.DataFrame, authors: pd.DataFrame) -> pd.DataF
     return frame
 
 
+def _safe_concat(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Concatenate non-empty result frames, returning an empty frame if needed.
+
+    :param frames: Per-organization result frames.
+    :return: Their concatenated rows, or an empty frame when all are empty.
+    """
+    non_empty_frames = [frame for frame in frames if not frame.empty]
+    if not non_empty_frames:
+        return pd.DataFrame()
+    return pd.concat(non_empty_frames, ignore_index=True)
+
+
 def match_researchers(
     researcher_df: pd.DataFrame,
     author_df: pd.DataFrame,
@@ -497,17 +509,9 @@ def match_researchers(
             )
             results.append(result)
         _logger.info("Aggregating organization match results", organization_count=len(results))
-        matched = pd.concat(
-            [result.matched for result in results if not result.matched.empty], ignore_index=True
-        )
-        unmatched = pd.concat(
-            [result.unmatched for result in results if not result.unmatched.empty],
-            ignore_index=True,
-        )
-        possibilities = pd.concat(
-            [result.possibilities for result in results if not result.possibilities.empty],
-            ignore_index=True,
-        )
+        matched = _safe_concat([result.matched for result in results])
+        unmatched = _safe_concat([result.unmatched for result in results])
+        possibilities = _safe_concat([result.possibilities for result in results])
         return ResearcherMatchResult(matched, possibilities, unmatched)
     researchers = researchers.loc[:, researchers.columns.intersection(RESEARCHER_COLUMNS)]
     authors = authors.loc[:, authors.columns.intersection(AUTHOR_COLUMNS)]

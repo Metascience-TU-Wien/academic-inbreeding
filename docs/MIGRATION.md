@@ -40,7 +40,7 @@ Migrate application modules and tests only after the dependency foundation is ve
 
 ### Status
 
-- The matching package, stage-specific TOML configuration, and runnable CLI workflow have been migrated. Test migration and behavioral-equivalence verification remain pending explicit approval.
+- The matching package, stage-specific TOML configuration, and runnable CLI workflow have been migrated. Phase 4 tests for `name_matching` have now been migrated and run; later stages remain untouched.
 - The original repository remains read-only. Existing target changes were left untouched.
 
 ### Architectural decisions
@@ -62,7 +62,10 @@ Migrate application modules and tests only after the dependency foundation is ve
 - Cross-stage schema fields confirmed against source consumers have been moved to `src/acib/constants.py`; `acib.name_matching.constants` now imports those shared definitions rather than redeclaring them. Fields whose semantics are stage-specific remain in the name-matching constants module.
 - The name-matching workflow intentionally separates the untouched researcher input metadata from a minimal matching projection. It validates non-null unique `sc_id` values and restores the original researcher columns after matching with a many-to-one merge and a row-count guard. Derived `researcher_name` remains separate from original person-name fields. This improves the original output behavior, which dropped those fields during its matching-column projection, without changing matching rules or organization filtering.
 - Restored structured `structlog` progress events for input loading, existing-ID passthrough counts, per-organization matching results, output writing, and total runtime. The CLI logging configuration alone was not sufficient: the migration had omitted the original workflow and matching logger calls.
-- Code migration does not imply test completion. Original tests have not been copied or changed; output comparison is reserved for the approval-gated test phase.
+- Test migration exposed that target organization aggregation raised when all per-organization frames of a result type were empty. Restored the source implementation's safe aggregation behavior, returning an empty DataFrame instead; this does not alter matching criteria or priorities.
+- Migrated the relevant matching, affiliation-preparation, existing-ID, and mapping assertions from the original name-matching tests into `tests/name_matching/`, and added a temporary-file end-to-end workflow test under `tests/integration/`. Original tests for inferred ASJC enrichment and formatting helpers were not ported because those features are not implemented in the target stage.
+- Matching regression expectations cover exact, containment, guarded fuzzy, and compound priorities and organization-filter decisions, based on the original matching tests. The integration case verifies original metadata restoration, Scopus-ID passthrough, output row count, and the organization-filtered match. Full-dataset comparison against the original was not run.
+- A direct representative-fixture comparison of original and migrated `simple_name_merge` results produced identical `(sc_id, eid, priority)` tuples for exact, containment, fuzzy, and compound cases.
 
 ### Verification
 
@@ -70,3 +73,5 @@ Migrate application modules and tests only after the dependency foundation is ve
 - `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/common src/acib/name_matching` passed with no type errors. Mypy reported unused module-specific configuration sections because this scoped invocation did not analyze those modules.
 - The module entry point's `--help` smoke check passed using temporary package injection for missing runtime dependencies; it did not run the matching pipeline or validate output equivalence.
 - Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel --out-dir /tmp/opencode` and `uv run /home/chri/PycharmProjects/academic-inbreeding/.venv/bin/python /home/chri/PycharmProjects/academic-inbreeding/scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
+- `uv run pytest tests/name_matching/` passed (25 tests); `uv run pytest tests/integration/` passed (4 tests). These focused tests emitted pandas `FutureWarning`s from `combine_first` when affiliation fields contain empty entries.
+- `./.venv/bin/ruff check src/acib/name_matching tests/name_matching tests/integration` passed. `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_matching tests/name_matching tests/integration` passed with no type errors; mypy reported unused unrelated configuration sections.
