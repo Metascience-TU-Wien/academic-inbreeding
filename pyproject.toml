@@ -1,0 +1,46 @@
+[project]
+name = "academic-inbreeding"
+version = "0.1.0"
+authors = [
+    { name = "Christoph Schlager", email = "christoph.schlager@tuwien.ac.at" },
+]
+requires-python = ">=3.12,<4.0,!=3.14.1"
+dependencies = [
+    "pandas>=2.3.3,<3.0.0",
+    "tqdm>=4.67.1,<5.0.0",
+    "google-genai>=1.57.0,<2.0.0",
+    "python-dotenv>=1.2.1,<2.0.0",
+    "fuzzywuzzy>=0.18.0,<0.19.0",
+    "python-levenshtein>=0.27.3,<0.28.0",
+    "structlog>=25.5.0,<26.0.0",
+    "pytest>=9.0.2,<10.0.0",
+    "pytest-mock>=3.15.1,<4.0.0",
+    "sqlalchemy>=2.0.48,<3.0.0",
+    "psycopg2-binary>=2.9.11,<3.0.0",
+    "geoalchemy2>=0.19.0,<0.20.0",
+    "pyarrow>=22.0.0,<23.0.0",
+    "pydantic>=2.12.5,<3.0.0",
+    "geopandas>=1.1.3,<2.0.0",
+    "toml>=0.10.2,<0.11.0",
+    "requests>=2.32.0,<3.0.0",
+    "matplotlib>=3.10.0,<4.0.0",
+    "plotly>=6.0.0,<7.0.0",
+    "openpyxl>=3.1.5,<4.0.0",
+    "playwright>=1.60.0,<2.0.0",
+    "coverage>=7.14.1,<8.0.0",
+    "cdindex>=1.0.20,<2.0.0",
+    "networkx>=3.6.1,<4.0.0",
+    "pybliometrics>=4.4.1,<5.0.0",
+    "inflection>=0.5.1,<0.6.0",
+    "routingpy>=1.3.0,<2.0.0",
+    "pandera>=0.32.1,<0.33.0",
+    "statsmodels>=0.14.6,<0.15.0",
+    "duckdb>=1.5.5,<2.0.0",
+    "seaborn>=0.13.2,<0.14.0",
+    "scipy>=1.18.1,<2.0.0",
+    "ruff>=0.16.7,<0.17.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12.0"]
+build-backend = "uv_build"
