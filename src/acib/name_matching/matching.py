@@ -46,6 +46,7 @@ from acib.name_matching.constants import (
 )
 
 _logger = structlog.getLogger(__name__)
+_NORMALIZED_NAME_COLUMN = "norm_name"
 
 
 def normalize_name(name: str) -> list[str]:
@@ -162,8 +163,7 @@ def fuzzy_name_merge(
     :param researcher_col: Researcher-name column.
     :return: Merged rows for accepted fuzzy matches.
     """
-    NORMALIZED_NAME_COLUMN = "norm_name"
-    key = NORMALIZED_NAME_COLUMN
+    key = _NORMALIZED_NAME_COLUMN
     researcher, author = (
         researcher_df.reset_index(drop=True).copy(),
         author_df.reset_index(drop=True).copy(),
