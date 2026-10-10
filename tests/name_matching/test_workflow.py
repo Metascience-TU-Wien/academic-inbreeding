@@ -104,7 +104,6 @@ def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Pa
         "\n".join(
             [
                 "[name_matching]",
-                'source = "scopus"',
                 f'researcher_file_path = "{researcher_path}"',
                 f'candidate_authors_file = "{authors_path}"',
                 'resolved_matches_output_file_path = "results/matches.csv"',
@@ -130,7 +129,6 @@ def test_name_matching_config_loads_explicit_scopus_options(tmp_path: Path) -> N
         "\n".join(
             [
                 "[name_matching]",
-                'source = "scopus"',
                 f'researcher_file_path = "{tmp_path / "researchers.csv"}"',
                 f'candidate_authors_file = "{tmp_path / "authors.csv"}"',
                 f'resolved_matches_output_file_path = "{tmp_path / "matches.csv"}"',
@@ -145,25 +143,10 @@ def test_name_matching_config_loads_explicit_scopus_options(tmp_path: Path) -> N
 
     config = load_name_matching_config(config_path)
 
-    assert config.source == "scopus"
     assert config.enable_given_name_aliases is False
     assert config.enable_organisation_filter is False
     assert config.max_workers == 5
     assert config.encoding == "utf-8"
-
-
-def test_name_matching_config_rejects_unsupported_source(tmp_path: Path) -> None:
-    config_path = tmp_path / "pipeline.toml"
-    config_path.write_text(
-        '[name_matching]\nsource = "unsupported"\n'
-        'researcher_file_path = "/tmp/researchers.csv"\n'
-        'candidate_authors_file = "/tmp/authors.csv"\n'
-        'resolved_matches_output_file_path = "/tmp/matches.csv"\n',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="Unsupported name-matching source"):
-        load_name_matching_config(config_path)
 
 
 @pytest.mark.parametrize("max_workers", [0, -1, True, "2"])

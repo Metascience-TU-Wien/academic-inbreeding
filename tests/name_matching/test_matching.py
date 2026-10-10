@@ -7,6 +7,7 @@ import pytest
 
 from acib.constants import EID, RESEARCHER_ID, UNIVERSITY_NAME
 from acib.name_matching.matching import (
+    compound_name_merge,
     find_fuzzy_matches,
     match_researchers,
     names_match,
@@ -60,6 +61,27 @@ def test_find_fuzzy_matches_keeps_duplicate_author_rows() -> None:
     authors = pd.DataFrame({"name": ["John Doe", "John Doe", "Jane Doe"]})
 
     assert find_fuzzy_matches("Doe John", authors, "name") == ["John Doe", "John Doe"]
+
+
+def test_compound_name_merge_returns_no_rows_when_researchers_are_empty() -> None:
+    researchers = pd.DataFrame(columns=[RESEARCHER_ID, "researcher_name"])
+    authors = pd.DataFrame({"author_id": [10], EID: ["P1"], "author_name": ["smith, anna"]})
+
+    assert compound_name_merge(researchers, authors).empty
+
+
+def test_compound_name_merge_returns_no_rows_when_authors_are_empty() -> None:
+    researchers = pd.DataFrame({RESEARCHER_ID: [1], "researcher_name": ["smith, anna"]})
+    authors = pd.DataFrame(columns=["author_id", EID, "author_name"])
+
+    assert compound_name_merge(researchers, authors).empty
+
+
+def test_compound_name_merge_returns_no_rows_when_both_frames_are_empty() -> None:
+    researchers = pd.DataFrame(columns=[RESEARCHER_ID, "researcher_name"])
+    authors = pd.DataFrame(columns=["author_id", EID, "author_name"])
+
+    assert compound_name_merge(researchers, authors).empty
 
 
 def test_organization_filter_restricts_authors_to_mapped_affiliations() -> None:
@@ -142,4 +164,33 @@ def test_organization_filter_handles_all_researchers_matched() -> None:
     )
 
     assert result.matched[RESEARCHER_ID].tolist() == [1]
+    assert result.unmatched.empty
+
+
+def test_organization_with_authors_but_no_researchers_creates_no_orphan_matches() -> None:
+    researchers = pd.DataFrame(
+        {
+            RESEARCHER_ID: [1],
+            "person_name": ["Anna"],
+            "person_surname": ["Smith"],
+            UNIVERSITY_NAME: ["TU Wien"],
+        }
+    )
+    authors = pd.DataFrame(
+        {
+            "author_id": [10],
+            EID: ["P1"],
+            "author_name": ["other, person"],
+            "affiliation_id": [60023270],
+        }
+    )
+
+    result = match_researchers(
+        researchers,
+        authors,
+        org_mapping={"FH Johanneum": [60023270]},
+        enable_organisation_filter=True,
+    )
+
+    assert result.matched.empty
     assert result.unmatched.empty

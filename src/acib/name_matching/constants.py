@@ -29,6 +29,8 @@ RESEARCHER_GIVEN_NAME = "person_name"
 ORGANIZATION_NAME = "organization"
 SC_ID_LOGICAL = "sc_id_logical"
 PERSON_FULLNAME = "person_fullname"
+SCOPUS_AUTHOR_ID_INPUT = "scopus_author_id"
+MATCH_PRIORITY_VALUES = frozenset({0, 1, 2, 3, 4})
 
 RESEARCHER_COLUMNS = (
     RESEARCHER_ID,
@@ -87,6 +89,23 @@ AUTHOR_COLUMNS = (
 MATCH_PRIORITY = "priority"
 AUTHOR_NAME_PREFIX = "name_prefix"
 MAPPING_ID = "mapping_id"
+
+MATCHING_OUTPUT_COLUMNS = (
+    RESEARCHER_ID,
+    AUTHOR_ID,
+    MATCH_PRIORITY,
+    EID,
+    RESEARCHER_NAME,
+    AUTHOR_NAME,
+    NAME,
+    INDEXED_NAME,
+    INITIALS,
+    GIVEN_NAME,
+    SURNAME,
+    PUBLICATION_RANGE,
+    NAME_VARIANTS,
+    SUBJECT_AREAS,
+)
 
 # This split-name pair is consumed by both the helper and containment strategy.
 _SPLIT_SURNAME_COLUMN = "_surname"

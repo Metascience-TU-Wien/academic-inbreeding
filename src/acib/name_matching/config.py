@@ -8,7 +8,6 @@ import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -17,7 +16,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 class NameMatchingConfig:
     """Validated inputs and options for one name-matching run."""
 
-    source: Literal["scopus"]
     researcher_file_path: Path
     candidate_authors_file: Path
     resolved_matches_output_file_path: Path
@@ -67,14 +65,10 @@ def load_name_matching_config(path: str | Path) -> NameMatchingConfig:
     if not isinstance(section, dict):
         raise KeyError("Missing required config section [name_matching]")
     try:
-        source = section.get("source", "scopus")
-        if source != "scopus":
-            raise ValueError(f"Unsupported name-matching source: {source!r}")
         max_workers = section.get("max_workers", 3)
         if not isinstance(max_workers, int) or isinstance(max_workers, bool) or max_workers < 1:
             raise ValueError("max_workers must be a positive integer")
         return NameMatchingConfig(
-            source=source,
             researcher_file_path=_resolve_config_path(
                 section["researcher_file_path"], PROJECT_ROOT
             ),

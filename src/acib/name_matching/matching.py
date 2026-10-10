@@ -260,7 +260,7 @@ def compound_name_merge(
     """
     authors, researchers = author_df.copy(), researcher_df.copy()
     if authors.empty or researchers.empty:
-        return authors
+        return authors.iloc[0:0].copy()
     SURNAME_TEMP_COLUMN = "_s"
     GIVEN_TEMP_COLUMN = "_g"
     SURNAME_TOKEN_TEMP_COLUMN = "_st"
@@ -487,6 +487,12 @@ def match_researchers(
                 if UNIVERSITY_NAME in researchers
                 else researchers.iloc[0:0]
             )
+            if selected_researchers.empty:
+                _logger.info(
+                    "Skipping organization without researchers",
+                    organization=organization,
+                )
+                continue
             selected_authors = (
                 authors.loc[authors[MAPPING_ID].isin(mapped_ids)]
                 if MAPPING_ID in authors

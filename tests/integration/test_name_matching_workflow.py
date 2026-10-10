@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pandera.pandas as pa
 import pytest
 
 from acib.constants import AUTHOR_ID, RESEARCHER_ID
@@ -50,7 +51,15 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
                 "author_id": 10,
                 "eid": "E1",
                 "author_name": "smith, anna",
+                "indexed_name": "Smith A.",
+                "initials": "A.",
+                "given_name": "Anna",
+                "surname": "Smith",
+                "publication_range": "2020-2024",
+                "name_variants": "[]",
+                "subject_areas": "[]",
                 "affiliation_id": 60018163,
+                "affiliation_id_parent": "60018163.0",
             },
         ]
     )
@@ -60,7 +69,6 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
     researchers.to_csv(researcher_path, index=False)
     authors.to_csv(author_path, index=False)
     config = NameMatchingConfig(
-        source="scopus",
         researcher_file_path=researcher_path,
         candidate_authors_file=author_path,
         resolved_matches_output_file_path=output_path,
@@ -71,6 +79,7 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
 
     assert output_path.exists()
     assert len(output) == 2
+    assert output[RESEARCHER_ID].notna().all()
     assert output[RESEARCHER_ID].tolist() == [1, 2]
     matched = output.loc[output["priority"].eq(1)].iloc[0]
     assert matched[AUTHOR_ID] == 10
@@ -79,9 +88,10 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
     assert matched["person_name"] == "Anna"
     assert matched["person_surname"] == "Smith"
     assert matched["person_fullname"] == "Anna Smith"
+    assert matched["affiliation_id_parent"] == 60018163
     assert matched["researcher_metadata"] == "preserve-me"
     passthrough = output.loc[output["priority"].eq(0)].iloc[0]
-    assert passthrough[AUTHOR_ID] == "999"
+    assert passthrough[AUTHOR_ID] == 999
     assert passthrough["scopus_author_id"] == 999.0
     assert passthrough["researcher_metadata"] == "also-preserve"
     assert output_path.stat().st_size > 0
@@ -95,9 +105,16 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
             {
                 "sc_id": [1, 1],
                 "person_name": ["First", "Duplicate"],
+                "person_surname": ["Example", "Example"],
             }
         ),
-        pd.DataFrame({"sc_id": [pd.NA], "person_name": ["Missing ID"]}),
+        pd.DataFrame(
+            {
+                "sc_id": [pd.NA],
+                "person_name": ["Missing"],
+                "person_surname": ["ID"],
+            }
+        ),
     ],
     ids=["missing-column", "duplicate-id", "missing-id"],
 )
@@ -112,13 +129,12 @@ def test_run_name_matching_rejects_invalid_researcher_ids(
         [{"author_id": 10, "author_name": "smith, anna", "affiliation_id": 60018163}]
     ).to_csv(author_path, index=False)
     config = NameMatchingConfig(
-        source="scopus",
         researcher_file_path=researcher_path,
         candidate_authors_file=author_path,
         resolved_matches_output_file_path=output_path,
         existing_scopus_author_id_column=None,
     )
 
-    with pytest.raises((KeyError, ValueError), match="sc_id"):
+    with pytest.raises(pa.errors.SchemaErrors, match="sc_id"):
         run_name_matching(config)
     assert not output_path.exists()

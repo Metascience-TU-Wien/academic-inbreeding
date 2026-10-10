@@ -26,6 +26,7 @@ from acib.name_matching.config import NameMatchingConfig
 from acib.name_matching.constants import (
     CURRENT_AFFILIATION,
     MATCH_PRIORITY,
+    MATCHING_OUTPUT_COLUMNS,
     NAME,
     PARENT_AFFILIATION_COLUMNS,
     PERSON_FULLNAME,
@@ -35,6 +36,12 @@ from acib.name_matching.constants import (
     SCOPUS_ID_MAPPING,
 )
 from acib.name_matching.matching import ResearcherMatchResult, match_researchers
+from acib.schemas import (
+    MatchingOutputSchema,
+    ResearcherInputSchema,
+    ScopusAuthorInputSchema,
+)
+from acib.schemas.affiliations import parse_nullable_affiliation_ids
 
 _logger = structlog.getLogger(__name__)
 
@@ -162,16 +169,10 @@ def run_name_matching(config: NameMatchingConfig) -> pd.DataFrame:
             f"{source_repository}"
         )
     researcher_metadata = pd.read_csv(config.researcher_file_path)
-    if RESEARCHER_ID not in researcher_metadata:
-        raise KeyError(f"Researcher input must contain a {RESEARCHER_ID!r} column")
-    if researcher_metadata[RESEARCHER_ID].isna().any():
-        raise ValueError(f"Researcher input contains missing {RESEARCHER_ID!r} values")
-    duplicated_ids = researcher_metadata[RESEARCHER_ID].duplicated(keep=False)
-    if duplicated_ids.any():
-        duplicate_values = researcher_metadata.loc[duplicated_ids, RESEARCHER_ID].drop_duplicates()
+    researcher_metadata = ResearcherInputSchema.validate(researcher_metadata, lazy=True)
+    if config.enable_organisation_filter and UNIVERSITY_NAME not in researcher_metadata:
         raise ValueError(
-            f"Researcher {RESEARCHER_ID!r} values must be unique; duplicates include "
-            f"{duplicate_values.head(10).tolist()!r}"
+            f"Researcher input requires {UNIVERSITY_NAME!r} when organization filtering is enabled"
         )
 
     matching_columns = (
@@ -192,7 +193,15 @@ def run_name_matching(config: NameMatchingConfig) -> pd.DataFrame:
             if column is not None and column in researcher_metadata
         ],
     ].copy()
-    authors = pd.read_csv(config.candidate_authors_file)
+    parent_id_columns = {column: "string" for column in PARENT_AFFILIATION_COLUMNS}
+    authors = pd.read_csv(
+        config.candidate_authors_file,
+        dtype=parent_id_columns,
+    )
+    for column in PARENT_AFFILIATION_COLUMNS:
+        if column in authors:
+            authors[column] = parse_nullable_affiliation_ids(authors[column])
+    authors = ScopusAuthorInputSchema.validate(authors, lazy=True)
     _logger.info(
         "Loaded name matching inputs",
         researcher_rows=len(researcher_metadata),
@@ -247,6 +256,13 @@ def run_name_matching(config: NameMatchingConfig) -> pd.DataFrame:
             "Restoring researcher metadata changed the number of resolved match rows"
         )
     output = sort_resolved_matches(output)
+    for column in MATCHING_OUTPUT_COLUMNS:
+        if column not in output:
+            if output.empty and column in {RESEARCHER_ID, AUTHOR_ID, MATCH_PRIORITY}:
+                output[column] = pd.Series(index=output.index, dtype="int64")
+            else:
+                output[column] = pd.Series(pd.NA, index=output.index, dtype="object")
+    output = MatchingOutputSchema.validate(output, lazy=True)
     _logger.info(
         "Writing resolved name matches",
         output_rows=len(output),
