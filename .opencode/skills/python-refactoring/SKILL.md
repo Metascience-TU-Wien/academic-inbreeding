@@ -26,13 +26,13 @@ Apply these standards when changing migrated Python implementation code. Improve
 
 ## Constants and DataFrame schemas
 
-- Follow PEP 8 naming conventions. Use `UPPER_SNAKE_CASE` for constants, `_UPPER_SNAKE_CASE` for private module-level constants, and `UPPER_SNAKE_CASE` for function-local constants. Use `snake_case` for ordinary local variables.
+- Follow PEP 8 naming conventions. Define named constants at module scope after imports. Use `UPPER_SNAKE_CASE` for public constants and `_UPPER_SNAKE_CASE` for private module-level constants. Use `snake_case` for ordinary local variables.
 - Define named constants for stable input and output DataFrame schema column names. Use those constants consistently for indexing, assignment, selection, filtering, merge/join keys, grouping, aggregation, renaming, and dropping columns—not only where a column first appears.
 - Before adding a column-name constant, search for an existing constant and reuse it when it denotes the same column. Give schema constants descriptive names that match their actual column values, and preserve the literal values, column order, and schema.
-- Put constants used exclusively by one stage in that stage's `constants.py` (for example, `acib/name_matching/constants.py`). Put genuinely shared constants used by multiple stages in `src/acib/constants.py`, and import them directly from `acib.constants`. In particular, share DataFrame column names only when both value and field semantics are identical. Never duplicate a shared field constant in multiple stage-specific `constants.py` modules.
+- Put stage-level schema constants used across modules in that stage's `constants.py` (for example, `acib/name_matching/constants.py`). Put genuinely shared constants used by multiple stages in `src/acib/constants.py`, and import them directly from `acib.constants`. In particular, share DataFrame column names only when both value and field semantics are identical. Never duplicate a shared field constant in multiple stage-specific `constants.py` modules.
 - During each stage migration, inspect both already-migrated and not-yet-migrated stages for constants representing the same field. Consolidate only confirmed cross-stage reuse, update all affected imports, and avoid dependencies on unmigrated stage packages. If future reuse is uncertain, keep the constant stage-specific until reuse is established.
 - Revisit existing constant definitions when migrating a new stage and consolidate any newly confirmed shared constants. Do not create a global module for unrelated constants or consolidate fields based only on similar names or string values.
-- Keep function-local constants inside their functions. Do not promote temporary DataFrame columns unless they are shared by multiple functions or represent a meaningful schema. Do not create constants for arbitrary strings such as log/error messages or file extensions.
+- Keep implementation-only constants in the module where they are used, at module scope after imports, using a private `_UPPER_SNAKE_CASE` name. This includes named DataFrame helper-column names even when only one function uses them; do not define named constants inside function bodies. For example, define `_NORMALIZED_NAME_COLUMN = "norm_name"` at module scope if a function uses that temporary merge key. Reserve stage `constants.py` modules for schema names and values reused across modules. Do not create constants for arbitrary strings such as log/error messages or file extensions.
 - During migration/refactoring, update all affected imports and references. Preserve existing behavior, scientific methods, thresholds, and calculations; then run Ruff and mypy.
 
 Example of naming schema columns and a schema tuple:
@@ -73,11 +73,12 @@ RESEARCHER_ID = "sc_id"
 from acib.constants import AUTHOR_ID, AFFILIATION_ID, RESEARCHER_ID
 ```
 
-Keep columns used only by one stage in that stage's constants module; do not
-add a shared definition until another stage uses the same field with the same
-meaning.
+Keep schema constants used by multiple modules within one stage in that
+stage's `constants.py`; do not add a shared definition until another stage
+uses the same field with the same meaning. Keep module-only implementation
+constants private in the implementation module.
 
-Example of private and function-local constants alongside ordinary local names:
+Example of a private module constant alongside ordinary local names:
 
 ```python
 _DEFAULT_BATCH_SIZE = 500
@@ -88,9 +89,7 @@ def process_records(records: list[Record]) -> list[Record]:
     :param records: Records to process.
     :return: Processed records.
     """
-    BATCH_SIZE = _DEFAULT_BATCH_SIZE
-    processed_records = transform(records, batch_size=BATCH_SIZE)
-    return processed_records
+    return transform(records, batch_size=_DEFAULT_BATCH_SIZE)
 ```
 
 ## Checks
