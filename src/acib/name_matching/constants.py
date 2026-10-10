@@ -97,8 +97,6 @@ SURNAME_AS_NAME_UNIVERSITIES = (VETMED_UNI_NAME,)
 
 # Source-specific organization-to-affiliation mappings.
 BIO_TECH_MED_GRAZ_ID = 60112421
-BIO_TECH_MED_GRAZ_ID_OA = "https://openalex.org/I4210117258"
-NAWI_GRAZ_ID_OA = "https://openalex.org/I4210108044"
 
 SCOPUS_ID_MAPPING: dict[str, list[int]] = {
     "FP fernfh": [109298005, 120334545],
@@ -143,53 +141,4 @@ SCOPUS_ID_MAPPING: dict[str, list[int]] = {
     "Lauder_Business": [112709324, 121578158],
     "MUK Wien": [60015267],
     VETMED_UNI_NAME: [60003417],
-}
-
-OPENALEX_ID_MAPPING: dict[str, list[str]] = {
-    "TU Wien": ["https://openalex.org/I145847075"],
-    "TU Graz": ["https://openalex.org/I4092182", NAWI_GRAZ_ID_OA, BIO_TECH_MED_GRAZ_ID_OA],
-    "Karl Franzens Uni Graz": [
-        "https://openalex.org/I15766117",
-        NAWI_GRAZ_ID_OA,
-        BIO_TECH_MED_GRAZ_ID_OA,
-    ],
-    "University of Vienna": ["https://openalex.org/I129774422"],
-    "AKB Wien": ["https://openalex.org/I5075986"],
-    "FP fernfh": ["https://openalex.org/I4405261147"],
-    "FH BFI Vienna": ["https://openalex.org/I4210109805"],
-    "FH Burgenland": ["https://openalex.org/I4210094037"],
-    "FH Campus Wien": ["https://openalex.org/I4210088715"],
-    "FH IMC Krems": ["https://openalex.org/I2800230563"],
-    "FH Gesundheitsberufe": ["https://openalex.org/I4210108027"],
-    "FH Kärnten": ["https://openalex.org/I4210127953"],
-    "FH Kufstein": ["https://openalex.org/I93485673"],
-    "FH Miles": [],
-    "FH Oberösterreich": ["https://openalex.org/I4210136249"],
-    "FH Salzburg": ["https://openalex.org/I4210087982"],
-    "FH Sankt Poelten": ["https://openalex.org/I25485817"],
-    "FH Technikum Wien": ["https://openalex.org/I121760703"],
-    "FH Wiener Neustadt": ["https://openalex.org/I38523324"],
-    "FH Gesundheit Tirol": ["https://openalex.org/I4210091108"],
-    "Johannes Kepler Uni Linz": ["https://openalex.org/I121883995"],
-    "kunstuni_linz": ["https://openalex.org/I4210115111"],
-    "Lauder_Business": ["https://openalex.org/I2800706213"],
-    "mci hochschule": ["https://openalex.org/I41073452"],
-    "MEDUNI Graz": ["https://openalex.org/institutions/i202276237", BIO_TECH_MED_GRAZ_ID_OA],
-    "MEDUNI Innsbruck": ["https://openalex.org/I143397708"],
-    "MEDUNI Wien": ["https://openalex.org/I76134821"],
-    "mozarteum_salzburg": ["https://openalex.org/I318632792"],
-    "FH Wien WKW": ["https://openalex.org/I4405252845"],
-    "FH Johanneum": ["https://openalex.org/I103365165"],
-    "Campus02": ["https://openalex.org/I4210126885"],
-    "Uni Salzburg": ["https://openalex.org/I182212641"],
-    "Kunstuni Graz": ["https://openalex.org/I317320687"],
-    "BOKU Wien": ["https://openalex.org/I92869138"],
-    "Donau Uni Krems": ["https://openalex.org/I132976966"],
-    "MUK Wien": ["https://openalex.org/I3132041272"],
-    "Vienna University of Economics and Business": ["https://openalex.org/I102248843"],
-    "Montanuni Leoben": ["https://openalex.org/I182712176"],
-    "Uni Innsbruck": ["https://openalex.org/I190249584"],
-    "Uni Klagenfurt": ["https://openalex.org/I4210166741"],
-    "Uni AK Wien": ["https://openalex.org/I143923934"],
-    VETMED_UNI_NAME: ["https://openalex.org/I150540706"],
 }

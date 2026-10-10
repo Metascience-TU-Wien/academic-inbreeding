@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 class NameMatchingConfig:
     """Validated inputs and options for one name-matching run."""
 
-    source: Literal["scopus", "openalex"]
+    source: Literal["scopus"]
     researcher_file_path: Path
     candidate_authors_file: Path
     resolved_matches_output_file_path: Path
@@ -68,7 +68,7 @@ def load_name_matching_config(path: str | Path) -> NameMatchingConfig:
         raise KeyError("Missing required config section [name_matching]")
     try:
         source = section.get("source", "scopus")
-        if source not in {"scopus", "openalex"}:
+        if source != "scopus":
             raise ValueError(f"Unsupported name-matching source: {source!r}")
         max_workers = section.get("max_workers", 3)
         if not isinstance(max_workers, int) or isinstance(max_workers, bool) or max_workers < 1:

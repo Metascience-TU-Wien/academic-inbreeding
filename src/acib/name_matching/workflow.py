@@ -27,7 +27,6 @@ from acib.name_matching.constants import (
     CURRENT_AFFILIATION,
     MATCH_PRIORITY,
     NAME,
-    OPENALEX_ID_MAPPING,
     PARENT_AFFILIATION_COLUMNS,
     PERSON_FULLNAME,
     RESEARCHER_GIVEN_NAME,
@@ -200,23 +199,19 @@ def run_name_matching(config: NameMatchingConfig) -> pd.DataFrame:
         candidate_author_rows=len(authors),
     )
     pre_resolved = researchers.iloc[0:0].copy()
-    org_mapping: dict[str, list[int | str]]
-    if config.source == "scopus":
-        researchers, pre_resolved = split_researchers_with_existing_scopus_ids(
-            researchers, config.existing_scopus_author_id_column
+    researchers, pre_resolved = split_researchers_with_existing_scopus_ids(
+        researchers, config.existing_scopus_author_id_column
+    )
+    if config.existing_scopus_author_id_column is not None:
+        _logger.info(
+            "Skipping researchers with existing Scopus author IDs",
+            skipped_rows=len(pre_resolved),
+            existing_scopus_author_id_column=config.existing_scopus_author_id_column,
         )
-        if config.existing_scopus_author_id_column is not None:
-            _logger.info(
-                "Skipping researchers with existing Scopus author IDs",
-                skipped_rows=len(pre_resolved),
-                existing_scopus_author_id_column=config.existing_scopus_author_id_column,
-            )
-        authors = prepare_scopus_author_affiliations(authors)
-        org_mapping = {organization: list(ids) for organization, ids in SCOPUS_ID_MAPPING.items()}
-    else:
-        if AUTHOR_ID not in authors:
-            authors[AUTHOR_ID] = np.arange(len(authors))
-        org_mapping = {organization: list(ids) for organization, ids in OPENALEX_ID_MAPPING.items()}
+    authors = prepare_scopus_author_affiliations(authors)
+    org_mapping: dict[str, list[int | str]] = {
+        organization: list(ids) for organization, ids in SCOPUS_ID_MAPPING.items()
+    }
     pre_resolved = pre_resolved.loc[
         :,
         [column for column in (RESEARCHER_ID, AUTHOR_ID, MATCH_PRIORITY) if column in pre_resolved],

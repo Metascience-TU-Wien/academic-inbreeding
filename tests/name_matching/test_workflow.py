@@ -12,7 +12,7 @@ from acib.name_matching.config import (
     PROJECT_ROOT,
     load_name_matching_config,
 )
-from acib.name_matching.constants import OPENALEX_ID_MAPPING, SCOPUS_ID_MAPPING
+from acib.name_matching.constants import SCOPUS_ID_MAPPING
 from acib.name_matching.workflow import (
     prepare_scopus_author_affiliations,
     split_researchers_with_existing_scopus_ids,
@@ -92,9 +92,8 @@ def test_prepare_scopus_author_affiliations_requires_affiliation_id() -> None:
         prepare_scopus_author_affiliations(pd.DataFrame({AUTHOR_ID: [1]}))
 
 
-def test_source_mappings_keep_source_specific_identifier_types() -> None:
+def test_scopus_mapping_contains_expected_university_ids() -> None:
     assert SCOPUS_ID_MAPPING["TU Wien"] == [60018163]
-    assert OPENALEX_ID_MAPPING["TU Wien"] == ["https://openalex.org/I145847075"]
 
 
 def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Path) -> None:
@@ -125,13 +124,13 @@ def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Pa
     assert config.encoding == "utf-8-sig"
 
 
-def test_name_matching_config_loads_explicit_source_options(tmp_path: Path) -> None:
+def test_name_matching_config_loads_explicit_scopus_options(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     config_path.write_text(
         "\n".join(
             [
                 "[name_matching]",
-                'source = "openalex"',
+                'source = "scopus"',
                 f'researcher_file_path = "{tmp_path / "researchers.csv"}"',
                 f'candidate_authors_file = "{tmp_path / "authors.csv"}"',
                 f'resolved_matches_output_file_path = "{tmp_path / "matches.csv"}"',
@@ -146,11 +145,25 @@ def test_name_matching_config_loads_explicit_source_options(tmp_path: Path) -> N
 
     config = load_name_matching_config(config_path)
 
-    assert config.source == "openalex"
+    assert config.source == "scopus"
     assert config.enable_given_name_aliases is False
     assert config.enable_organisation_filter is False
     assert config.max_workers == 5
     assert config.encoding == "utf-8"
+
+
+def test_name_matching_config_rejects_unsupported_source(tmp_path: Path) -> None:
+    config_path = tmp_path / "pipeline.toml"
+    config_path.write_text(
+        '[name_matching]\nsource = "unsupported"\n'
+        'researcher_file_path = "/tmp/researchers.csv"\n'
+        'candidate_authors_file = "/tmp/authors.csv"\n'
+        'resolved_matches_output_file_path = "/tmp/matches.csv"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported name-matching source"):
+        load_name_matching_config(config_path)
 
 
 @pytest.mark.parametrize("max_workers", [0, -1, True, "2"])
