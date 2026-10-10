@@ -33,7 +33,7 @@ dependencies = [
     "pybliometrics>=4.4.1,<5.0.0",
     "inflection>=0.5.1,<0.6.0",
     "routingpy>=1.3.0,<2.0.0",
-    "pandera>=0.32.1,<0.33.0",
+    "pandera[pandas]>=0.32.1,<0.33.0",
     "statsmodels>=0.14.6,<0.15.0",
     "duckdb>=1.5.5,<2.0.0",
     "seaborn>=0.13.2,<0.14.0",
@@ -41,6 +41,12 @@ dependencies = [
     "ruff>=0.16.7,<0.17.0",
 ]
 
+[project.scripts]
+match-author-names = "acib.name_matching.cli:main"
+
 [build-system]
 requires = ["uv_build>=0.11.2,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "acib"

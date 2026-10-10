@@ -35,3 +35,45 @@ The source project is `name-matching-playground`, managed with Poetry. The targe
 ## Later phases
 
 Migrate application modules and tests only after the dependency foundation is verified. Preserve matching and disambiguation behavior, and compare outputs against the source implementation using representative fixtures and datasets before considering each stage complete.
+
+## Phase 2 — `name_matching` code migration
+
+### Status
+
+- The matching package, stage-specific TOML configuration, and runnable CLI workflow have been migrated. Phase 4 tests for `name_matching` have now been migrated and run; later stages remain untouched.
+- The original repository remains read-only. Existing target changes were left untouched.
+
+### Architectural decisions
+
+- Added the stage package `src/acib/name_matching/` for matching algorithms and its TOML configuration model.
+- Added `scripts/match_author_names.py` as the legacy-style script entry point, the `match-author-names` project command, and `python -m acib.name_matching`. Added a target `config/pipeline.toml` containing only the original `[name_matching]` table; later stages' settings are intentionally not copied in this stage.
+- Added `src/acib/common/names.py` for name normalization, splitting, surname compatibility/blocking, given-name compatibility, aliases, and compound matching. These primitives have no stage imports and use only the standard library plus optional `regex` (with the original standard-library fallback).
+- Kept stage-specific token fuzzy matching, dataframe joins, priority assignment, and result structures inside `acib.name_matching`.
+- Did not add imports from future pipeline stage packages. Existing target repository uses an `acib` package scaffold; no `AGENTS.md` or `docs/ARCHITECTURE.md` was present during this migration.
+
+### Implementation and behavior notes
+
+- Migrated the exact, containment, guarded fuzzy, and conservative compound matching paths, including match priorities (1–4), the 90 fuzzy score threshold, the two-token and 0.8 overlap guards, and researcher/author de-duplication.
+- Added the name-matching TOML settings model and loader. It retains the source keys/defaults, expands environment/user paths, and resolves relative input/output paths from the project root.
+- The workflow supports Scopus inputs, Scopus parent-affiliation normalization, existing Scopus ID passthrough, matching, stable output sorting, and CSV writing. It does not yet reproduce the complete Scopus name-formatting path or inferred ASJC enrichment; these remain code-migration limitations, and full behavior equivalence is not claimed.
+- Default and relative config paths resolve from the project root rather than the process working directory, so the script works when launched with `scripts/` as its working directory. The workflow refuses to write output beneath the read-only `name-matching-playground` sibling repository.
+- Shared name behavior was checked against its original consumers: the disambiguation parser, name scoring, gender utilities, and matching implementation use the same normalization/splitting/compatibility semantics. The shared module is independent of pandas and stage configuration.
+- Reuse opportunity for the next stage: migrate disambiguation imports of `normalize_person_name`, `split_name`, `given_name_compatible`, and `surname_compatible` to `acib.common.names` rather than recopying those implementations. Future-stage organization/path utilities were not generalized.
+- Cross-stage schema fields confirmed against source consumers have been moved to `src/acib/constants.py`; `acib.name_matching.constants` now imports those shared definitions rather than redeclaring them. Fields whose semantics are stage-specific remain in the name-matching constants module.
+- The name-matching workflow intentionally separates the untouched researcher input metadata from a minimal matching projection. It validates non-null unique `sc_id` values and restores the original researcher columns after matching with a many-to-one merge and a row-count guard. Derived `researcher_name` remains separate from original person-name fields. This improves the original output behavior, which dropped those fields during its matching-column projection, without changing matching rules or organization filtering.
+- Restored structured `structlog` progress events for input loading, existing-ID passthrough counts, per-organization matching results, output writing, and total runtime. The CLI logging configuration alone was not sufficient: the migration had omitted the original workflow and matching logger calls.
+- Test migration exposed that target organization aggregation raised when all per-organization frames of a result type were empty. Restored the source implementation's safe aggregation behavior, returning an empty DataFrame instead; this does not alter matching criteria or priorities.
+- Fixed the confirmed empty-researcher compound-match bug: organization groups with no researchers are skipped, and `compound_name_merge` now returns an empty frame when either side is empty. In the configured full output, the old implementation had 719 unlinked priority-4 rows, all mapped to FH Johanneum, for which the researcher input contained no researchers. The same early-return bug existed in the original implementation.
+- Added reusable Pandera DataFrameModel contracts in `src/acib/schemas/` for researchers, Scopus author/affiliation input, and matching output. Input and output validation use the returned DataFrames; additional metadata remains allowed. Parent-affiliation ID CSV values are parsed lexically into nullable `Int64` without an intermediate float conversion; matching output normalizes numeric Scopus author IDs to `int64` after validation.
+- Migrated the relevant matching, affiliation-preparation, existing-ID, and mapping assertions from the original name-matching tests into `tests/name_matching/`, and added a temporary-file end-to-end workflow test under `tests/integration/`. Original tests for inferred ASJC enrichment and formatting helpers were not ported because those features are not implemented in the target stage.
+- Matching regression expectations cover exact, containment, guarded fuzzy, and compound priorities and organization-filter decisions, based on the original matching tests. The integration case verifies original metadata restoration, Scopus-ID passthrough, output row count, and the organization-filtered match. Full-dataset comparison against the original was not run.
+- A direct representative-fixture comparison of original and migrated `simple_name_merge` results produced identical `(sc_id, eid, priority)` tuples for exact, containment, fuzzy, and compound cases.
+
+### Verification
+
+- `./.venv/bin/ruff check src/acib/common src/acib/name_matching` passed.
+- `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/common src/acib/name_matching` passed with no type errors. Mypy reported unused module-specific configuration sections because this scoped invocation did not analyze those modules.
+- The module entry point's `--help` smoke check passed using temporary package injection for missing runtime dependencies; it did not run the matching pipeline or validate output equivalence.
+- Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel --out-dir /tmp/opencode` and `uv run /home/chri/PycharmProjects/academic-inbreeding/.venv/bin/python /home/chri/PycharmProjects/academic-inbreeding/scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
+- `uv run pytest tests/name_matching/` passed (25 tests); `uv run pytest tests/integration/` passed (4 tests). These focused tests emitted pandas `FutureWarning`s from `combine_first` when affiliation fields contain empty entries.
+- `./.venv/bin/ruff check src/acib/name_matching tests/name_matching tests/integration` passed. `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_matching tests/name_matching tests/integration` passed with no type errors; mypy reported unused unrelated configuration sections.
