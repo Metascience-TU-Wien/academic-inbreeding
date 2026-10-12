@@ -16,16 +16,18 @@ Use this skill to plan and carry out a single processing-stage migration from th
 
 ## Required migration order
 
-Migrate one stage at a time in this exact order:
+Migrate one stage at a time in this approved order:
 
 1. `name_matching`
 2. `name_disambiguation`
 3. `mobility`
-4. `mobility_impact`
-5. `regression`
-6. `statistical_matching`
+4. `regression`
+5. `statistical_matching`
 
-Do not skip, combine, or start a later stage before completing the current stage's approved workflow.
+The `mobility_impact` stage is excluded from migration and must not block
+subsequent stages. Do not skip ahead within the remaining stages, combine
+stages, or start a later stage before completing the current stage's approved
+workflow.
 
 ## Analysis checklist
 
