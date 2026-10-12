@@ -9,7 +9,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from acib.mobility.config import MobilityConfig, MobilityOutputs
 from acib.name_disambiguation.config import (
@@ -17,6 +17,15 @@ from acib.name_disambiguation.config import (
     NameDisambiguationOutputs,
 )
 from acib.name_matching.config import NameMatchingConfig
+from acib.regression.config import (
+    LoadedRegressionInputs,
+    RegressionConfig,
+    RegressionModelConfig,
+    RegressionModelType,
+    RegressionOutcomeMetadata,
+    RegressionOutcomeType,
+    RegressionOutputs,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -30,6 +39,8 @@ class DataConfig:
     article_author_file_path: Path | None = None
     article_reference_file_path: Path | None = None
     author_affiliations_file_path: Path | None = None
+    article_impact_file_path: Path | None = None
+    disruption_indicator_file_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +51,7 @@ class PipelineConfig:
     name_matching: NameMatchingConfig
     name_disambiguation: NameDisambiguationConfig | None = None
     mobility: MobilityConfig | None = None
+    regression: RegressionConfig | None = None
 
 
 def resolve_config_path(value: str | Path, base: Path = PROJECT_ROOT) -> Path:
@@ -255,16 +267,31 @@ def load_pipeline_config(path: str | Path) -> PipelineConfig:
         data, "article_reference_file_path", required=bool(disambiguation_section)
     )
     author_affiliations = _data_path(data, "author_affiliations_file_path", required=False)
+    article_impact = _data_path(data, "article_impact_file_path", required=False)
+    disruption_indicators = _data_path(data, "disruption_indicator_file_path", required=False)
     assert researchers is not None and scopus_authors is not None
     data_config = DataConfig(
-        researchers, scopus_authors, article_author, article_reference, author_affiliations
+        researchers,
+        scopus_authors,
+        article_author,
+        article_reference,
+        author_affiliations,
+        article_impact,
+        disruption_indicators,
     )
     matching_config = load_name_matching_config(path)
     disambiguation_config = (
         load_name_disambiguation_config(path) if disambiguation_section else None
     )
     mobility_config = load_mobility_config(path) if "mobility" in raw else None
-    return PipelineConfig(data_config, matching_config, disambiguation_config, mobility_config)
+    regression_config = load_regression_config(path) if "regression" in raw else None
+    return PipelineConfig(
+        data_config,
+        matching_config,
+        disambiguation_config,
+        mobility_config,
+        regression_config,
+    )
 
 
 def load_mobility_config(path: str | Path) -> MobilityConfig:
@@ -348,6 +375,16 @@ def load_mobility_config(path: str | Path) -> MobilityConfig:
     )
 
 
+def load_regression_data(config: RegressionConfig) -> LoadedRegressionInputs:
+    """Load the producer-owned regression input artifact for downstream consumers.
+
+    :param config: Resolved regression stage configuration.
+    :return: Researcher-level regression input table.
+    :raises FileNotFoundError: If the regression artifact is absent.
+    """
+    return config.load_inputs()
+
+
 def _load_mobility_outputs(section: Mapping[str, Any]) -> MobilityOutputs:
     """Resolve the four explicitly owned mobility output artifacts.
 
@@ -375,3 +412,276 @@ def _load_mobility_outputs(section: Mapping[str, Any]) -> MobilityOutputs:
             raise TypeError(f"[mobility.outputs].{key} must be a path string")
         paths[key] = resolve_config_path(value)
     return MobilityOutputs(**paths)
+
+
+def load_regression_config(path: str | Path) -> RegressionConfig:
+    """Load regression paths through canonical data and mobility ownership.
+
+    :param path: Shared pipeline TOML file.
+    :return: Regression inputs, scientific options, and explicit output paths.
+    :raises KeyError: If required data, mobility outputs, or regression outputs are absent.
+    :raises TypeError: If a path or setting has the wrong TOML type.
+    :raises ValueError: If redundant paths or invalid model settings are present.
+    """
+    raw = _read_config(path)
+    section = _table(raw, "regression", required=True)
+    _reject_stage_path_duplicates(
+        section,
+        "regression",
+        (
+            "author_article_file_path",
+            "author_file_path",
+            "article_impact_file_path",
+            "disruption_indicator_file_path",
+            "output_dir",
+        ),
+    )
+    data = _table(raw, "data", required=False)
+    mobility_section = _table(raw, "mobility", required=True)
+    mobility_outputs_section = mobility_section.get("outputs")
+    if not isinstance(mobility_outputs_section, dict):
+        raise KeyError("Regression requires [mobility.outputs].author_inbreeding_proxy")
+    mobility_outputs = _load_mobility_outputs(mobility_outputs_section)
+    article_author = _data_path(data, "article_author_file_path", required=True)
+    assert article_author is not None
+    article_impact = _data_path(data, "article_impact_file_path", required=False)
+    disruption_indicators = _data_path(data, "disruption_indicator_file_path", required=False)
+
+    outputs_section = section.get("outputs")
+    if not isinstance(outputs_section, dict):
+        raise KeyError("Missing required [regression.outputs] table")
+    outputs = _load_regression_outputs(outputs_section)
+    dependent_variables = _load_regression_dependent_variables(section)
+    outcome_metadata = _load_regression_outcome_metadata(section)
+    missing_metadata = set(dependent_variables) - outcome_metadata.keys()
+    if missing_metadata:
+        raise KeyError(
+            "Missing [regression.outcome_metadata] for dependent variables: "
+            + ", ".join(sorted(missing_metadata))
+        )
+    model_specs = _load_regression_model_specs(section)
+    inflation_formulas = section.get("zinb_inflation_formulas", {})
+    if not isinstance(inflation_formulas, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in inflation_formulas.items()
+    ):
+        raise TypeError("regression.zinb_inflation_formulas must map outcome names to formulas")
+    title_pattern = section.get("professor_title_pattern", "prof")
+    if not isinstance(title_pattern, str) or not title_pattern:
+        raise TypeError("regression.professor_title_pattern must be a nonempty string")
+    excluded_titles = section.get("exclude_titles", ["FH-Ass. Prof."])
+    if not isinstance(excluded_titles, list) or any(
+        not isinstance(title, str) for title in excluded_titles
+    ):
+        raise TypeError("regression.exclude_titles must be an array of strings")
+    rebuild_input = section.get("rebuild_input", True)
+    print_summaries = section.get("print_model_summaries", False)
+    drop_missing = section.get("drop_missing", True)
+    if not all(isinstance(value, bool) for value in (rebuild_input, print_summaries, drop_missing)):
+        raise TypeError("Regression execution flags must be TOML booleans")
+    failure_policy = section.get("mle_failure_policy", "error")
+    if failure_policy not in {"error", "warn"}:
+        raise ValueError("regression.mle_failure_policy must be 'error' or 'warn'")
+    covariance = section.get("covariance_type")
+    if covariance is not None and not isinstance(covariance, str):
+        raise TypeError("regression.covariance_type must be a string or null")
+    return RegressionConfig(
+        article_author_file_path=article_author,
+        mobility_author_proxy=mobility_outputs.author_inbreeding_proxy,
+        outputs=outputs,
+        article_impact_file_path=article_impact,
+        disruption_indicator_file_path=disruption_indicators,
+        dependent_variables=dependent_variables,
+        outcome_metadata=outcome_metadata,
+        model_specs=model_specs,
+        zinb_inflation_formulas=dict(inflation_formulas),
+        zinb_regularization=_nonnegative_number(section, "zinb_regularization", 3.0),
+        zinb_fit_method=_nonempty_string(section, "zinb_fit_method", "bfgs"),
+        zinb_max_iterations=_positive_integer(section, "zinb_max_iterations", 1000),
+        zinb_dispersion_power=_positive_integer(section, "zinb_dispersion_power", 2),
+        mle_failure_policy=failure_policy,
+        mle_gradient_tolerance=_positive_number(section, "mle_gradient_tolerance", 1e-4),
+        covariance_type=covariance,
+        drop_missing=drop_missing,
+        min_publications=_positive_integer(section, "min_publications", 4),
+        min_first_year=_optional_nonnegative_integer(section, "min_first_year"),
+        professor_title_pattern=title_pattern,
+        exclude_titles=tuple(excluded_titles),
+        rebuild_input=rebuild_input,
+        print_model_summaries=print_summaries,
+    )
+
+
+def _load_regression_outputs(section: Mapping[str, Any]) -> RegressionOutputs:
+    """Resolve fixed regression artifacts and collection directories.
+
+    :param section: The ``[regression.outputs]`` TOML table.
+    :return: Explicit regression output paths.
+    :raises KeyError: If a required artifact path is missing.
+    :raises TypeError: If an artifact path is not a string.
+    :raises ValueError: If unrecognized output keys are configured.
+    """
+    output_keys = (
+        "regression_input",
+        "professor_article_input",
+        "professor_article_diagnostics",
+        "asjc_field_share_diagnostics",
+        "regression_input_diagnostics",
+        "model_coefficients",
+        "model_fit_statistics",
+        "dependent_variable_descriptives",
+        "aic_bic_comparison",
+        "aic_bic_ranked",
+        "best_models_by_aic",
+        "best_models_by_bic",
+        "inbreeding_discipline_spec_comparison",
+        "model_formulas",
+        "model_summaries",
+        "latex_dir",
+        "plots_dir",
+    )
+    missing = [key for key in output_keys if key not in section]
+    if missing:
+        raise KeyError("Missing [regression.outputs] declarations: " + ", ".join(missing))
+    unexpected = set(section) - set(output_keys)
+    if unexpected:
+        raise ValueError("Unrecognized [regression.outputs] keys: " + ", ".join(sorted(unexpected)))
+    paths: dict[str, Path] = {}
+    for key in output_keys:
+        value = section[key]
+        if not isinstance(value, str):
+            raise TypeError(f"[regression.outputs].{key} must be a path string")
+        paths[key] = resolve_config_path(value)
+    return RegressionOutputs(**paths)
+
+
+def _load_regression_dependent_variables(
+    section: Mapping[str, Any],
+) -> dict[str, RegressionModelType]:
+    """Load outcome-to-model-family settings without consulting downstream config.
+
+    :param section: The ``[regression]`` TOML table.
+    :return: Dependent variable model families.
+    :raises TypeError: If outcome families are not configured as a string table.
+    :raises ValueError: If any model family is unsupported.
+    """
+    values = section.get("dependent_variables", {})
+    if not isinstance(values, dict) or any(
+        not isinstance(outcome, str) or not isinstance(model, str)
+        for outcome, model in values.items()
+    ):
+        raise TypeError("regression.dependent_variables must map outcomes to model families")
+    allowed = {"ols", "pr", "nb", "zinb"}
+    invalid = {model for model in values.values() if model not in allowed}
+    if invalid:
+        raise ValueError("Unsupported regression model family: " + ", ".join(sorted(invalid)))
+    return {outcome: cast(RegressionModelType, model) for outcome, model in values.items()}
+
+
+def _load_regression_outcome_metadata(
+    section: Mapping[str, Any],
+) -> dict[str, RegressionOutcomeMetadata]:
+    """Load regression-owned outcome groupings and labels.
+
+    :param section: The ``[regression]`` TOML table.
+    :return: Outcome metadata keyed by dependent-variable name.
+    :raises TypeError: If metadata values have invalid TOML types.
+    :raises ValueError: If outcome groupings or aliases are invalid.
+    """
+    from acib.regression.constants import DEFAULT_REGRESSION_OUTCOME_METADATA
+
+    raw = section.get("outcome_metadata")
+    if raw is None:
+        return {
+            key: RegressionOutcomeMetadata(
+                outcome_type=cast(RegressionOutcomeType, value[0]), alias=value[1]
+            )
+            for key, value in DEFAULT_REGRESSION_OUTCOME_METADATA.items()
+        }
+    if not isinstance(raw, dict):
+        raise TypeError("[regression.outcome_metadata] must be a table")
+    metadata: dict[str, RegressionOutcomeMetadata] = {}
+    for outcome, value in raw.items():
+        if not isinstance(value, dict):
+            raise TypeError(f"[regression.outcome_metadata.{outcome}] must be a table")
+        outcome_type = value.get("outcome_type")
+        alias = value.get("alias")
+        if outcome_type not in {"relative", "absolute"}:
+            raise ValueError(
+                f"[regression.outcome_metadata.{outcome}].outcome_type must be "
+                "'relative' or 'absolute'"
+            )
+        if not isinstance(alias, str) or not alias:
+            raise TypeError(
+                f"[regression.outcome_metadata.{outcome}].alias must be a " "nonempty string"
+            )
+        if set(value) != {"outcome_type", "alias"}:
+            raise ValueError(f"Unexpected keys in [regression.outcome_metadata.{outcome}]")
+        metadata[outcome] = RegressionOutcomeMetadata(
+            outcome_type=cast(RegressionOutcomeType, outcome_type),
+            alias=alias,
+        )
+    return metadata
+
+
+def _load_regression_model_specs(
+    section: Mapping[str, Any],
+) -> tuple[RegressionModelConfig, ...] | None:
+    """Parse optional custom model specifications.
+
+    :param section: The ``[regression]`` TOML table.
+    :return: Ordered custom specs, or ``None`` to use the ten source defaults.
+    :raises TypeError: If model specs have invalid TOML types.
+    :raises ValueError: If model specs are empty or identifiers repeat.
+    """
+    raw = section.get("model_specs")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise TypeError("regression.model_specs must be an array of tables")
+    specs: list[RegressionModelConfig] = []
+    for index, value in enumerate(raw):
+        if not isinstance(value, dict):
+            raise TypeError(f"regression.model_specs[{index}] must be a table")
+        model_id = value.get("model_id")
+        terms = value.get("terms")
+        if not isinstance(model_id, str) or not model_id:
+            raise TypeError(f"regression.model_specs[{index}].model_id must be a nonempty string")
+        if (
+            not isinstance(terms, list)
+            or not terms
+            or any(not isinstance(term, str) for term in terms)
+        ):
+            raise TypeError(
+                f"regression.model_specs[{index}].terms must be a nonempty string array"
+            )
+        if set(value) != {"model_id", "terms"}:
+            raise ValueError(f"Unexpected keys in regression.model_specs[{index}]")
+        specs.append(RegressionModelConfig(model_id=model_id, terms=tuple(terms)))
+    identifiers = [spec.model_id for spec in specs]
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("regression.model_specs model_id values must be unique")
+    return tuple(specs)
+
+
+def _nonempty_string(section: Mapping[str, Any], key: str, default: str) -> str:
+    value = section.get(key, default)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"regression.{key} must be a nonempty string")
+    return value
+
+
+def _positive_number(section: Mapping[str, Any], key: str, default: float) -> float:
+    value = _nonnegative_number(section, key, default)
+    if value <= 0:
+        raise ValueError(f"regression.{key} must be positive")
+    return value
+
+
+def _optional_nonnegative_integer(section: Mapping[str, Any], key: str) -> int | None:
+    value = section.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"regression.{key} must be a nonnegative integer or null")
+    return value

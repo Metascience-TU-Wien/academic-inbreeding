@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 # Copyright © 2026 TU Wien
 
-"""Legacy-style script entry point for academic mobility."""
+"""Script entry point for academic mobility analysis."""
 
 from acib.mobility.cli import main
 

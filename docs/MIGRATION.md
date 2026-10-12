@@ -49,7 +49,7 @@ below are retained where they document prior dependency analysis.
 | `name_disambiguation` | COMPLETED |
 | `mobility` | COMPLETED |
 | `mobility_impact` | EXCLUDED |
-| `regression` | NEXT |
+| `regression` | PHASE 3 REPORT; PHASE 4 AWAITS APPROVAL |
 | `statistical_matching` | PLANNED |
 
 The approved migration order is `name_matching` → `name_disambiguation` →
@@ -272,3 +272,101 @@ established by inspecting implementations.
   were made.
 - No later stage was migrated, no scientific method was changed, and no commit
   was created.
+
+## Phase 2 — `regression` code migration
+
+### Configuration ownership and dependencies
+
+- Regression's external article-author table, article-impact indicators, and
+  optional disruption-indicator file are resolved from their canonical `[data]`
+  entries. The author-level inbreeding input is resolved directly from
+  `mobility.outputs.author_inbreeding_proxy`; it is not duplicated under
+  `[regression]` and no upstream stage is automatically executed.
+- Regression resolves relative external paths from the target project root and
+  retains configured absolute external paths. Generated files never fall back
+  to a legacy-repository output path.
+- `article_impact_file_path` is an external dataset, not an output of the
+  excluded `mobility_impact` stage. Regression has no dependency on
+  `mobility_impact`.
+- Regression outputs are explicitly declared in `[regression.outputs]`:
+  `regression_input`, `professor_article_input`, three build diagnostics, model
+  coefficients/statistics/descriptives, AIC/BIC reports, formulas, summaries,
+  and the `latex_dir`/`plots_dir` collection roots. The future statistical-
+  matching stage consumes `regression.outputs.regression_input` rather than
+  declaring a duplicate input path.
+- Regression's outcome groupings and aliases were moved from the source's
+  `statistical_matching.dependent_variables` coupling to
+  `[regression.outcome_metadata]`. The configured relative/absolute groups and
+  labels are retained, and regression can run without the statistical-matching
+  section. No statistical-matching code or configuration was migrated.
+- The site-specific `run_regression.sh` Slurm/Apptainer wrapper was not
+  migrated. The Python `analyze_regression.py` and `build_regression_input.py`
+  entry points, `python -m acib.regression`, and the `run-regressions` and
+  `build-regression-input` commands are available without cluster-specific
+  paths.
+
+### Implementation and scientific behavior
+
+- Added the separate `src/acib/regression/` package for input construction,
+  fractional ASJC field shares, model fitting/diagnostics, tables, LaTeX, and
+  the regression-suite plots. Reused `acib.common.titles`, mobility's author
+  and ASJC summary helpers, and disambiguation's ASJC taxonomy where source
+  semantics match.
+- Regression validates the mobility proxy, the shared article-author input,
+  optional impact/disruption data, generated researcher-level and
+  professor-article tables, and coefficient/fit/descriptive outputs at stage
+  boundaries. The same source article-author and mobility-proxy contracts are
+  reused for those producer artifacts; regression-specific tables have their
+  own contracts.
+- Preserved the ten model specifications and configured model families: seven
+  OLS outcomes and Negative Binomial for `n_public`. Also preserved
+  `min_publications = 1`, `rebuild_input = true`, `drop_missing = true`,
+  professor-title filtering, empty configured title exclusions, the 1996–2023
+  impact eligibility window, fractional top-percentile aggregation, ASJC field
+  shares/reference selection, NB/ZINB diagnostic policy `error`, and gradient
+  tolerance `0.0001`. No scientific method or model specification was changed.
+- The source regression package's module-level documentation said the default
+  was nine models, but its actual model constants define ten. The target
+  documentation now correctly says ten; model terms remain unchanged.
+- The `regression_input` output is the canonical future statistical-matching
+  artifact. `professor_article_input` remains available for the regression
+  suite's professor-title plot and existing analysis helpers; the two plot
+  families are written only under the configured `plots_dir`.
+- Approved regression plot fix: the Model 9 prediction plot's non-OLS guard now
+  considers only the plot's configured outcomes. The unrelated `n_public` Model
+  9 Negative Binomial fit no longer suppresses the four-outcome OLS prediction
+  figure. The user reported that the original pipeline produced this plot; the
+  regression output run showed Model 9 OLS fits and an NB `n_public` fit, while
+  only the professor violin PNG was present. Verification of the fix through
+  regression tests and a source-comparison run remains pending Phase 4 approval.
+- Fixed generated files retain their source filenames: the two prepared input
+  artifacts, three input diagnostics, coefficient and fit-statistics tables,
+  descriptives, AIC/BIC outputs, the inbreeding comparison, formula text, and
+  summary text. Model-dependent LaTeX and plot files remain grouped under their
+  explicitly configured collection directories.
+- The regression builder validates the shared mobility article-author schema,
+  mobility author-proxy contract, configured external impact/disruption
+  contracts, and its researcher-/professor-level output contracts. Model
+  coefficient, fit-statistic, and descriptive artifacts are also validated at
+  the write boundary. Missing mobility inputs report the mobility producer;
+  regression never executes mobility.
+- `RegressionConfig` can either rebuild from external/mobility inputs or load
+  its own previously generated `regression_input` artifact when
+  `rebuild_input = false`. This checks the configured path and contract only;
+  freshness is not established.
+- The optional `disruption_indicator_file_path` remains unset in the checked-in
+  sample, but if configured its sole declaration is `[data]`.
+- Regression's fixed model outputs are individually configured, while
+  model-dependent LaTeX tables and conditional figures are grouped under the
+  configured `latex_dir` and `plots_dir`. No output root or legacy output
+  filename is hardcoded in the regression package.
+
+### Phase 3 — code migration report and Phase 4 gate
+
+- `uv run ruff check .` passed.
+- `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/` passed with no type errors across 79 source files; mypy emitted notices for unrelated unused config sections.
+- `uv run pre-commit run --all-files` passed all applicable hooks, including Flake8, Black, mypy, isort, AST, TOML, and whitespace checks. The two plot modules intentionally select the Agg backend before importing pyplot; `.flake8` scopes their Flake8 E402 exemption, while Ruff passes without unused `noqa` directives.
+- CLI `--help` smoke checks for `python -m acib.regression`, `scripts/analyze_regression.py`, and `scripts/build_regression_input.py` passed. Loading the configured regression settings resolved the mobility proxy, external article/impact paths, outcome groups/aliases, and all explicit outputs. The mobility proxy and external inputs exist; the regression output directory did not exist before implementation checks.
+- Path resolution and configured-input existence were checked; output declarations and schemas are implemented, but the regression workflow and model fitting were not run, so end-to-end artifact validity and numerical equivalence remain unverified. Existing artifact presence/schema checks do not establish freshness; stale-artifact detection is not implemented.
+- No regression tests were created, migrated, modified, or run in Phase 2, as required by the approval gate. The 42 core regression tests, builder serialization test, seven Model 9 plot tests, and four professor-violin plot tests remain to be migrated only after explicit Phase 4 approval. No regression scientific-regression comparison has been performed.
+- The original repository remains read-only. No regression workflow, input builder, model fit, or output write was run; production research outputs were not overwritten. No commit was created.

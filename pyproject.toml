@@ -46,6 +46,8 @@ match-author-names = "acib.name_matching.cli:main"
 disambiguate-author-names = "acib.name_disambiguation.cli:main"
 run-academic-inbreeding = "acib.mobility.cli:main"
 run-acib-pipeline = "acib.pipeline.cli:main"
+run-regressions = "acib.regression.cli:main"
+build-regression-input = "acib.regression.build_cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.2,<0.12.0"]
