@@ -54,11 +54,12 @@ Migrate stages in this order, one stage per migration:
 1. `name_matching`
 2. `name_disambiguation`
 3. `mobility`
-4. `mobility_impact`
-5. `regression`
-6. `statistical_matching`
+4. `regression`
+5. `statistical_matching`
 
-Do not skip ahead or migrate multiple stages in one pass.
+The `mobility_impact` stage is explicitly excluded from the migration scope and must not block subsequent stages.
+
+Do not skip ahead within the remaining migration stages or migrate multiple stages in one pass.
 
 Use the `module-migration` and `python-refactoring` skills throughout Phases 1–3.
 
@@ -161,7 +162,6 @@ For example:
 - `src/acib/name_matching/workflow.py` → `tests/name_matching/test_workflow.py`
 - `src/acib/name_disambiguation/` → `tests/name_disambiguation/`
 - `src/acib/mobility/` → `tests/mobility/`
-- `src/acib/mobility_impact/` → `tests/mobility_impact/`
 - `src/acib/regression/` → `tests/regression/`
 - `src/acib/statistical_matching/` → `tests/statistical_matching/`
 
@@ -286,7 +286,8 @@ Never claim tests passed unless they were actually run.
 - Never silently change scientific algorithms, thresholds, classification rules, statistical methods, outputs, or TOML configuration semantics.
 - Explicitly request approval for intentional behavioral changes.
 - Document approved behavioral changes in `docs/MIGRATION.md`.
-- Never migrate all stages at once; follow the fixed order and migrate one stage at a time.
+- Never migrate all stages at once; follow the current approved migration order and migrate one stage at a time.
+- Do not migrate excluded stages, including mobility_impact, unless explicitly requested by the user.
 - Never migrate tests before explicit user approval.
 - Request approval before significant architectural changes.
 - Do not modify unrelated files or overwrite pre-existing user changes.

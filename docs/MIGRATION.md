@@ -36,6 +36,27 @@ The source project is `name-matching-playground`, managed with Poetry. The targe
 
 Migrate application modules and tests only after the dependency foundation is verified. Preserve matching and disambiguation behavior, and compare outputs against the source implementation using representative fixtures and datasets before considering each stage complete.
 
+### Stage migration status and approved order
+
+The project owner has decided that `mobility_impact` is excluded from the
+migration scope. It is not pending, is not required before regression, and no
+`mobility_impact` migration is planned. Historical references to this stage
+below are retained where they document prior dependency analysis.
+
+| Stage | Status |
+| --- | --- |
+| `name_matching` | COMPLETED |
+| `name_disambiguation` | COMPLETED |
+| `mobility` | COMPLETED |
+| `mobility_impact` | EXCLUDED |
+| `regression` | NEXT |
+| `statistical_matching` | PLANNED |
+
+The approved migration order is `name_matching` → `name_disambiguation` →
+`mobility` → `regression` → `statistical_matching`, one stage per migration.
+This is a migration sequence only; actual artifact dependencies must be
+established by inspecting implementations.
+
 ## Phase 2 — `name_matching` code migration
 
 ### Status
