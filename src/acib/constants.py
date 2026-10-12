@@ -10,6 +10,8 @@ EID = "eid"
 
 # Shared author identity and evidence columns.
 PERSON_TITLE = "person_title"
+TITLE_CLASS = "person_title_class"
+TITLE = "title"
 UNIVERSITY_NAME = "university_name"
 SURNAME = "surname"
 GIVEN_NAME = "given_name"

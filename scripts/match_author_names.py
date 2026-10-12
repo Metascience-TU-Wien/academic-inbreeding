@@ -1,6 +1,6 @@
 # Copyright © 2026 TU Wien
 
-"""Compatibility entry point for the migrated name-matching stage."""
+"""Compatibility entry point for the name-matching stage."""
 
 from acib.name_matching.cli import main
 

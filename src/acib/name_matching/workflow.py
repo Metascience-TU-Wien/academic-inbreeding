@@ -144,7 +144,7 @@ def sort_resolved_matches(matches: pd.DataFrame) -> pd.DataFrame:
     return matches.sort_values(columns, kind="mergesort", na_position="last").reset_index(drop=True)
 
 
-def run_name_matching(config: NameMatchingConfig) -> pd.DataFrame:
+def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) -> pd.DataFrame:
     """Load configured CSVs, execute matching, and write resolved records.
 
     :param config: Settings loaded from the ``[name_matching]`` TOML table.
@@ -155,6 +155,11 @@ def run_name_matching(config: NameMatchingConfig) -> pd.DataFrame:
      changes row count.
     """
     started_at = time.perf_counter()
+    if config.resolved_matches_output_file_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"Name-matching output already exists: {config.resolved_matches_output_file_path}. "
+            "Pass overwrite=True explicitly to replace it."
+        )
     _logger.info(
         "Loading name matching inputs",
         researcher_file_path=str(config.researcher_file_path),
