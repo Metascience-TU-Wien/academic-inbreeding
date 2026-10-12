@@ -28,9 +28,12 @@ def main() -> None:
         action="store_true",
         help="Validate configured input paths before loading data.",
     )
+    parser.add_argument(
+        "--overwrite", action="store_true", help="Replace an existing matching output."
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     config = load_name_matching_config(args.config)
     if args.validate_paths:
         config.check_paths_exist()
-    run_name_matching(config)
+    run_name_matching(config, overwrite=args.overwrite)

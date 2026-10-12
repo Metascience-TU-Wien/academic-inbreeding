@@ -77,3 +77,36 @@ Migrate application modules and tests only after the dependency foundation is ve
 - Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel --out-dir /tmp/opencode` and `uv run /home/chri/PycharmProjects/academic-inbreeding/.venv/bin/python /home/chri/PycharmProjects/academic-inbreeding/scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
 - `uv run pytest tests/name_matching/` passed (25 tests); `uv run pytest tests/integration/` passed (4 tests). These focused tests emitted pandas `FutureWarning`s from `combine_first` when affiliation fields contain empty entries.
 - `./.venv/bin/ruff check src/acib/name_matching tests/name_matching tests/integration` passed. `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_matching tests/name_matching tests/integration` passed with no type errors; mypy reported unused unrelated configuration sections.
+
+## Phase 2 — `name_disambiguation` code migration
+
+### Status
+
+- The disambiguation implementation, matcher-output dependency, publication-evidence inputs, configured artifact outputs, and minimal matcher-to-disambiguation runner have been migrated. Phase 3 static checks passed; test migration and regression comparison remain gated on explicit approval.
+- The original repository has not been modified. No disambiguation tests were created, copied, or edited during this phase.
+
+### Architectural decisions and implementation
+
+- Kept disambiguation algorithms and stage options in `src/acib/name_disambiguation/`; added six explicit outputs (pair decisions, cluster memberships, final selections, selection scores, text reports, and JSONL reports).
+- Added `scripts/disambiguate_author_names.py` to pair with `scripts/match_author_names.py`; retained `scripts/run_disambiguation.py` as a backward-compatible alias. The `disambiguate-author-names` command and `python -m acib.name_disambiguation` entry points are also available.
+- The stage consumes `name_matching.resolved_matches_output_file_path` as its upstream input. Shared external researcher, Scopus-author, article-author, and article-reference datasets are represented in `[data]`; legacy path declarations remain accepted when nonconflicting. Legacy `disambiguated_author_path` directory configuration is translated to the six conventional artifact names.
+- Implemented a minimal two-stage runner that validates and reuses a present matcher artifact, or runs matching if it is absent, before invoking disambiguation. This is intentionally not a generic pipeline framework.
+- Reused `acib.common.names` for name operations and `acib.common.titles` for final-selection title classification. Kept legacy-compatible name normalization in the disambiguation package where whitespace/null semantics differ from the shared matcher helper.
+- Added Pandera contracts for prepared author rows, publication evidence and citation edges, four tabular disambiguation outputs, and final researcher selections. Validation is at stage boundaries; unrelated researcher/author metadata is retained.
+- Consolidated stable DataFrame field names through stage constants and reused confirmed shared or matching-stage fields rather than duplicating definitions. Temporary clustering columns remain private to the clustering module; decision/status values and nested report-object keys remain values, not DataFrame constants. Added Sphinx/reStructuredText documentation to the public disambiguation APIs and typed models without changing calculations.
+- Ported scoring, pair clustering, selection, reporting, and output enrichment including author history and current affiliations. Preserved the 6.0/3.0 default pair thresholds, selection rules/statuses, output artifact names, and legacy report renderers. `enable_reporting` controls console reports; configured report files are still written with the other artifacts.
+- Central configuration resolves relative paths from the project root and rejects conflicting duplicate declarations. Existing legacy key spellings are accepted as aliases so migrated TOML can load without changing scientific or path interpretation.
+
+### Reuse opportunities and limitations
+
+- Later mobility stages can reuse `common.titles` and shared author/researcher identity constants. Publication-evidence schemas and citation-edge loading may be reusable only after comparing their semantics with later-stage inputs; no broader evidence abstraction was introduced.
+- The shared name-normalization helper is not a drop-in replacement for disambiguation normalization because whitespace and missing-value semantics differ.
+- Article datasets and the matching artifact are external inputs; no full-dataset execution or source-output comparison was performed in this code phase. Existing artifacts are checked for presence and schema only; freshness/staleness tracking is not implemented.
+- No intentional scientific or output behavior changes are approved or claimed. Input/output validation may reject malformed data earlier than the legacy implementation; scoring and classification behavior were not intentionally changed.
+
+### Verification and approval gate
+
+- `uv run ruff check src/acib/name_disambiguation src/acib/pipeline src/acib/schemas` passed.
+- `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_disambiguation src/acib/pipeline src/acib/schemas` passed with no type errors. Mypy printed notices for unused module-specific config sections outside this analysis scope.
+- `uv run python -m compileall -q src/acib/name_disambiguation src/acib/pipeline src/acib/schemas` passed. A runtime import/config smoke check resolved the configured paths and thresholds successfully.
+- Pytest was not run, and tests were not migrated. Await explicit approval before Phase 4 for `name_disambiguation`.
