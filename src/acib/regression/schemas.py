@@ -11,23 +11,12 @@ import pandas as pd
 import pandera.pandas as pa
 from pandera.typing import Series
 
-from acib.constants import EID, RESEARCHER_ID, TITLE
-from acib.mobility.constants import FIRST_DATE, IS_INBREEDING_PROXY
-from acib.mobility.schemas import MobilityAuthorInbreedingOutputSchema
-from acib.name_disambiguation.constants import AUTHOR_IDS
-from acib.regression.constants import (
+from acib.constants import (
     ACADEMIC_AGE,
-    ARTICLE_IMPACT_ID,
-    CLASS_NAME,
-    DI1,
-    DI5,
+    EID,
     FIRST_YEAR,
-    FOCAL_EID,
     HAZEN_PERCENTILE,
     IS_INBRED,
-    LEIDEN_P_TOP_1,
-    LEIDEN_P_TOP_5,
-    LEIDEN_P_TOP_10,
     N_PUBLIC,
     P_TOP_1,
     P_TOP_5,
@@ -35,6 +24,21 @@ from acib.regression.constants import (
     PP_TOP_1,
     PP_TOP_5,
     PP_TOP_10,
+    RESEARCHER_ID,
+    TITLE,
+)
+from acib.mobility.constants import FIRST_DATE, IS_INBREEDING_PROXY
+from acib.mobility.schemas import MobilityAuthorInbreedingOutputSchema
+from acib.name_disambiguation.constants import AUTHOR_IDS
+from acib.regression.constants import (
+    ARTICLE_IMPACT_ID,
+    CLASS_NAME,
+    DI1,
+    DI5,
+    FOCAL_EID,
+    LEIDEN_P_TOP_1,
+    LEIDEN_P_TOP_5,
+    LEIDEN_P_TOP_10,
     PTOP_1_FRACTION,
     PTOP_5_FRACTION,
     PTOP_10_FRACTION,

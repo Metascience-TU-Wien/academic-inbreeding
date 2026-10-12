@@ -12,6 +12,57 @@ EID = "eid"
 PERSON_TITLE = "person_title"
 TITLE_CLASS = "person_title_class"
 TITLE = "title"
+IS_INBRED = "is_inbred"
+N_PUBLIC = "n_public"
+HAZEN_PERCENTILE = "hazen_perc_med"
+PP_TOP_1 = "pp_top_1"
+PP_TOP_5 = "pp_top_5"
+PP_TOP_10 = "pp_top_10"
+P_TOP_1 = "p_top_1"
+P_TOP_5 = "p_top_5"
+P_TOP_10 = "p_top_10"
+ABSOLUTE_P_TOP_1 = "P_top1"
+ABSOLUTE_P_TOP_5 = "P_top5"
+ABSOLUTE_P_TOP_10 = "P_top10"
+ACADEMIC_AGE = "academic_age"
+FIRST_YEAR = "first_year"
+PRIMARY_FIELD = "primary_field"
+FIELD_SHARE_COLUMNS: tuple[str, ...] = (
+    "multi_share",
+    "agri_bio_share",
+    "arts_hum_share",
+    "biochem_share",
+    "business_share",
+    "chem_eng_share",
+    "chem_share",
+    "comp_sci_share",
+    "decision_share",
+    "earth_share",
+    "econ_share",
+    "energy_share",
+    "eng_share",
+    "env_sci_share",
+    "immuno_share",
+    "materials_share",
+    "math_share",
+    "med_share",
+    "neuro_share",
+    "nursing_share",
+    "pharma_share",
+    "physics_share",
+    "psych_share",
+    "soc_sci_share",
+    "vet_share",
+    "dentistry_share",
+    "health_share",
+)
+DOMAIN_SHARE_COLUMNS: tuple[str, ...] = (
+    "life_sci_share",
+    "health_sci_share",
+    "phys_sci_share",
+    "soc_hum_share",
+    "multi_area_share",
+)
 UNIVERSITY_NAME = "university_name"
 SURNAME = "surname"
 GIVEN_NAME = "given_name"

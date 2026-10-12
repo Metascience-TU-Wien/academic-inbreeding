@@ -9,6 +9,18 @@ from typing import Any
 
 import pandas as pd
 
+from acib.constants import (
+    ABSOLUTE_P_TOP_1,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_10,
+    ACADEMIC_AGE,
+    FIRST_YEAR,
+    HAZEN_PERCENTILE,
+    N_PUBLIC,
+    PP_TOP_1,
+    PP_TOP_5,
+    PP_TOP_10,
+)
 from acib.regression.constants import ABSOLUTE_PERFORMANCE_OUTCOMES
 from acib.regression.model import FittedRegressionModel
 
@@ -28,19 +40,19 @@ class ContinuousVariable:
 
 
 DESCRIPTIVE_OUTCOME_VARIABLES = (
-    ContinuousVariable("hazen_perc_med", r"mwPR [\%]", digits=1),
-    ContinuousVariable("pp_top_10", r"PP(top 10\%) [\%]", 100.0, 1),
-    ContinuousVariable("pp_top_5", r"PP(top 5\%) [\%]", 100.0, 1),
-    ContinuousVariable("pp_top_1", r"PP(top 1\%) [\%]", 100.0, 1),
+    ContinuousVariable(HAZEN_PERCENTILE, r"mwPR [\%]", digits=1),
+    ContinuousVariable(PP_TOP_10, r"PP(top 10\%) [\%]", 100.0, 1),
+    ContinuousVariable(PP_TOP_5, r"PP(top 5\%) [\%]", 100.0, 1),
+    ContinuousVariable(PP_TOP_1, r"PP(top 1\%) [\%]", 100.0, 1),
 )
 DESCRIPTIVE_ABSOLUTE_OUTCOME_VARIABLES = (
-    ContinuousVariable("n_public", "Publications [count]", digits=0),
-    ContinuousVariable("P_top10", r"P(top 10\%) [count]", digits=1),
-    ContinuousVariable("P_top5", r"P(top 5\%) [count]", digits=1),
-    ContinuousVariable("P_top1", r"P(top 1\%) [count]", digits=1),
+    ContinuousVariable(N_PUBLIC, "Publications [count]", digits=0),
+    ContinuousVariable(ABSOLUTE_P_TOP_10, r"P(top 10\%) [count]", digits=1),
+    ContinuousVariable(ABSOLUTE_P_TOP_5, r"P(top 5\%) [count]", digits=1),
+    ContinuousVariable(ABSOLUTE_P_TOP_1, r"P(top 1\%) [count]", digits=1),
 )
 DESCRIPTIVE_EXPLANATORY_VARIABLES = (
-    ContinuousVariable("academic_age", "Academic age [years]", digits=0),
+    ContinuousVariable(ACADEMIC_AGE, "Academic age [years]", digits=0),
     ContinuousVariable("coaffiliation_publication_share", r"Co-affil. pub. share [\%]", 100.0, 1),
     ContinuousVariable("mean_coauthors_per_publication", "Mean coauthors per pub.", digits=1),
     ContinuousVariable(
@@ -49,7 +61,7 @@ DESCRIPTIVE_EXPLANATORY_VARIABLES = (
     ContinuousVariable(
         "n_away_years_abroad", "International mobility [years]", digits=0, mean_sd_digits=1
     ),
-    ContinuousVariable("first_year", "First publication year", digits=0),
+    ContinuousVariable(FIRST_YEAR, "First publication year", digits=0),
 )
 TITLE_ORDER = ("Full Prof.", "Ao. Prof.", "Ass. Prof.", "FH-Prof.", "FH-Ass. Prof.")
 

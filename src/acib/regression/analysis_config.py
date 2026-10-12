@@ -9,9 +9,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from acib.regression.constants import (
+    ABSOLUTE_PERFORMANCE_OUTCOMES,
     DEFAULT_REGRESSION_DEPENDENT_VARIABLES,
     OUTCOME_DISPLAY_LABELS,
     REGRESSION_TITLE_EXCLUSIONS,
+    RELATIVE_PERFORMANCE_OUTCOMES,
 )
 from acib.regression.specs import RegressionModelSpec, regression_model_specs
 
@@ -31,13 +33,8 @@ class RegressionSuiteConfig:
     model_specs: tuple[RegressionModelSpec, ...]
     model_types: Mapping[str, str] | None = None
     outcome_aliases: Mapping[str, str] = field(default_factory=lambda: dict(OUTCOME_DISPLAY_LABELS))
-    relative_performance_outcomes: tuple[str, ...] = (
-        "hazen_perc_med",
-        "pp_top_10",
-        "pp_top_5",
-        "pp_top_1",
-    )
-    absolute_performance_outcomes: tuple[str, ...] = ("n_public", "P_top10", "P_top5", "P_top1")
+    relative_performance_outcomes: tuple[str, ...] = RELATIVE_PERFORMANCE_OUTCOMES
+    absolute_performance_outcomes: tuple[str, ...] = ABSOLUTE_PERFORMANCE_OUTCOMES
     zinb_inflation_formulas: Mapping[str, str] | None = None
     zinb_regularization: float = 3.0
     zinb_fit_method: str = "bfgs"

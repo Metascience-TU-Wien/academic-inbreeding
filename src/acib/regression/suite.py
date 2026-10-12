@@ -16,6 +16,11 @@ from acib.regression.analysis_config import (
     RegressionSuiteConfig,
 )
 from acib.regression.config import RegressionOutputs
+from acib.regression.constants import (
+    ABSOLUTE_PERFORMANCE_OUTCOMES,
+    ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
+    RELATIVE_PERFORMANCE_OUTCOMES,
+)
 from acib.regression.data import (
     dependent_variable_descriptives,
     model_frame,
@@ -51,13 +56,8 @@ class RegressionSuiteResult:
 
     models: dict[tuple[str, str], FittedRegressionModel]
     dependent_variables: tuple[str, ...]
-    relative_performance_outcomes: tuple[str, ...] = (
-        "hazen_perc_med",
-        "pp_top_10",
-        "pp_top_5",
-        "pp_top_1",
-    )
-    absolute_performance_outcomes: tuple[str, ...] = ("n_public", "P_top10", "P_top5", "P_top1")
+    relative_performance_outcomes: tuple[str, ...] = RELATIVE_PERFORMANCE_OUTCOMES
+    absolute_performance_outcomes: tuple[str, ...] = ABSOLUTE_PERFORMANCE_OUTCOMES
     outcome_aliases: Mapping[str, str] = field(default_factory=lambda: dict(OUTCOME_DISPLAY_LABELS))
 
     @property
@@ -187,7 +187,7 @@ class RegressionSuiteResult:
             }
         )
         if set(self.absolute_performance_outcomes).issuperset(
-            {"P_top10", "P_top5", "P_top1"}
+            ABSOLUTE_TOP_PERCENTILE_OUTCOMES
         ) and can_render_absolute_top_percentile_latex_table(self.models, model_id="m9"):
             tables["model9_absolute_top_percentile_robustness.tex"] = (
                 absolute_top_percentile_latex_table(

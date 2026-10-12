@@ -10,12 +10,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from acib.constants import DOMAIN_SHARE_COLUMNS, FIELD_SHARE_COLUMNS
 from acib.mobility.input import general_asjc_subject_area_dict
 from acib.name_disambiguation.asjc import ASJC_TAXONOMY
-from acib.regression.constants import (
-    DOMAIN_SHARE_COLUMNS,
-    FIELD_SHARE_COLUMNS,
-)
 
 ASJC_MAJOR_FIELDS: dict[int, str] = {
     1000: "Multidisciplinary",

@@ -50,7 +50,7 @@ below are retained where they document prior dependency analysis.
 | `mobility` | COMPLETED |
 | `mobility_impact` | EXCLUDED |
 | `regression` | COMPLETED (PHASE 4) |
-| `statistical_matching` | PLANNED |
+| `statistical_matching` | PHASE 2 CODE MIGRATION COMPLETE; TEST MIGRATION GATED |
 
 The approved migration order is `name_matching` → `name_disambiguation` →
 `mobility` → `regression` → `statistical_matching`, one stage per migration.
@@ -418,3 +418,52 @@ established by inspecting implementations.
   through the migrated plot classes and configured regression writer instead.
   No full research-dataset regression run was performed during Phase 4; the
   configured research outputs were not overwritten. No commit was created.
+
+## Phase 2 — `statistical_matching` code migration
+
+### Configuration, ownership, and implementation
+
+- Added the independent `acib.statistical_matching` package and direct
+  `load_statistical_matching_config` loader. The sole input resolves through
+  `regression.outputs.regression_input`; selected ordered outcomes are configured
+  under `[statistical_matching].outcomes`, and family/label metadata is derived
+  only from `[regression.outcome_metadata]`. Matching introduces no local input
+  path, aliases/types, or upstream auto-run.
+- Declared nine CSV artifacts and `matching_formulas` individually, plus
+  `latex_dir` and `plots_dir` collection roots. Added the script, project command,
+  module entry point, and canonical-path plot-only utility.
+- The CSV outputs are `balance_summary`, `covariate_balance`,
+  `outcome_effects_long`, `adjusted_outcome_means`, `outcome_effects_wide`,
+  `outcome_standard_errors_wide`, `method_diagnostics`, `propensity_scores`, and
+  `propensity_scores_by_method`. The LaTeX and PNG filenames retain the source
+  names within the configured collections.
+- Input schema validation requires researcher identity and configured treatment,
+  covariates, and outcomes while preserving additional producer columns. Missing
+  regression artifacts identify the regression producer. Presence/schema checks
+  do not establish freshness.
+- Matching reads the producer artifact through regression's existing CSV/Parquet
+  table reader and applies `RegressionInputOutputSchema` before configured-column
+  checks. Each CSV table is validated against a matching-owned Pandera contract
+  before its configured write; dynamic method and diagnostic columns are allowed.
+- Centralized confirmed shared inbreeding, outcome, academic-age/year, and field/
+  domain-share constants in `acib.constants`; regression and matching use those
+  shared definitions directly.
+
+### Behavior and migration gate
+
+- Migrated current-source treatment parsing/preparation, PSM, ATT IPTW, CEM,
+  entropy balancing, population-pooled-SD balance diagnostics, weighted outcome
+  models and configured robust covariance. Preserved PP-only percentage scaling,
+  two-decimal console/LaTeX p-values, relative/absolute LaTeX families, and the
+  conditional absolute-outcome plot. `treated_value` remains inert as in source.
+- The read-only source worktree had pre-existing changes to matching, outcome
+  metadata, family reports, and absolute-outcome plotting when audited. Phase 2
+  used that working-tree behavior as the approved reference; those source files
+  and changes were not edited.
+- Reuse includes regression's producer artifact contract and the lazy formula API
+  helper only; matching does not depend on regression algorithms. The plotting
+  helper consumes canonical configured outputs without duplicating input paths.
+- No matching workflow/model fit against research data was run, and configured
+  research outputs were not written. No tests were created, edited, migrated, or
+  run. Phase 3 static checks are reported in the code-migration completion
+  response; test migration remains separately gated and awaits explicit approval.

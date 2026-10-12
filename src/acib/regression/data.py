@@ -7,6 +7,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from acib.constants import IS_INBRED, PRIMARY_FIELD, TITLE
+
 
 def prepare_regression_data(
     data: pd.DataFrame,
@@ -24,13 +26,13 @@ def prepare_regression_data(
     result.loc[:, numeric_columns] = result.loc[:, numeric_columns].replace(
         [np.inf, -np.inf], np.nan
     )
-    if exclude_titles and "title" in result:
-        result = result[~result["title"].isin(exclude_titles)].copy()
-    for column in ("title", "primary_field"):
+    if exclude_titles and TITLE in result:
+        result = result[~result[TITLE].isin(exclude_titles)].copy()
+    for column in (TITLE, PRIMARY_FIELD):
         if column in result:
             result[column] = result[column].fillna("").astype("category")
-    if "is_inbred" in result:
-        result["is_inbred"] = result["is_inbred"].astype("category")
+    if IS_INBRED in result:
+        result[IS_INBRED] = result[IS_INBRED].astype("category")
     return result
 
 

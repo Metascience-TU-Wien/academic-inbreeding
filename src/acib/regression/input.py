@@ -21,8 +21,18 @@ from acib.common.titles import (
     professor_title_mask,
 )
 from acib.constants import (
+    ABSOLUTE_P_TOP_1,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_10,
+    ACADEMIC_AGE,
     EID,
+    FIRST_YEAR,
+    HAZEN_PERCENTILE,
+    IS_INBRED,
+    N_PUBLIC,
     PERSON_TITLE,
+    PP_TOP_10,
+    PRIMARY_FIELD,
     RESEARCHER_ID,
     SUBJECT_AREAS,
     TITLE_CLASS,
@@ -55,12 +65,9 @@ from acib.regression.constants import (
     CLASS_NAME,
     DI1,
     DI5,
-    FIRST_YEAR,
     FRACTIONAL_TOP_COLUMNS,
     IMPACT_ASJC_FIELD_COLUMN,
     IMPACT_PUBLICATION_YEAR_RANGE,
-    PP_TOP_10,
-    PRIMARY_FIELD,
     PRIMARY_FIELD_SHARE,
     PROFESSOR_ARTICLE_OUTPUT_COLUMNS,
     PTOP_10_FRACTION,
@@ -696,23 +703,23 @@ def aggregate_regression_input(author_articles: pd.DataFrame) -> pd.DataFrame:
         "pp_top_1": ("pp_top_1", "mean"),
         "pp_top_5": ("pp_top_5", "mean"),
         "pp_top_10": ("pp_top_10", "mean"),
-        "P_top10": (
+        ABSOLUTE_P_TOP_10: (
             PTOP_10_FRACTION,
             lambda values: pd.to_numeric(values, errors="coerce").sum(min_count=1),
         ),
-        "P_top5": (
+        ABSOLUTE_P_TOP_5: (
             "ptop5_frac",
             lambda values: pd.to_numeric(values, errors="coerce").sum(min_count=1),
         ),
-        "P_top1": (
+        ABSOLUTE_P_TOP_1: (
             "ptop1_frac",
             lambda values: pd.to_numeric(values, errors="coerce").sum(min_count=1),
         ),
         PUBLIC_PROD: (PUBLIC_PROD, "first"),
-        "hazen_perc_med": ("hazen_perc_med", "mean"),
-        "n_public": (N_UNIQUE, "first"),
-        "academic_age": ("academic_age_years", "first"),
-        "is_inbred": (IS_INBREEDING_PROXY, "first"),
+        HAZEN_PERCENTILE: (HAZEN_PERCENTILE, "mean"),
+        N_PUBLIC: (N_UNIQUE, "first"),
+        ACADEMIC_AGE: ("academic_age_years", "first"),
+        IS_INBRED: (IS_INBREEDING_PROXY, "first"),
         "n_affiliations": ("n_affiliations", "first"),
         "title": (TITLE_CLASS, "first"),
         "publication_mobility": ("has_publication_mobility", "first"),
@@ -733,7 +740,7 @@ def aggregate_regression_input(author_articles: pd.DataFrame) -> pd.DataFrame:
         DI5: (DI5, "median"),
     }
     if N_UNIQUE not in author_articles.columns and EID in author_articles.columns:
-        aggregation["n_public"] = (EID, "nunique")
+        aggregation[N_PUBLIC] = (EID, "nunique")
     if EID in author_articles.columns:
         aggregation["n_public_impact"] = ("_impact_eligible_eid", "nunique")
         aggregation["_first_impact_year"] = ("_impact_year", "min")
@@ -791,15 +798,15 @@ def add_derived_regression_columns(data: pd.DataFrame) -> pd.DataFrame:
     :return: Copy with derived columns for available source fields.
     """
     result = data.copy()
-    if {"n_public", "academic_age"}.issubset(result.columns):
-        result["publication_rate"] = result["n_public"] / result["academic_age"]
-        result["log_publication_rate"] = np.log1p(result["n_public"] / result["academic_age"])
-    if "n_public" in result.columns:
-        result["log_n_public"] = np.log1p(result["n_public"])
+    if {N_PUBLIC, ACADEMIC_AGE}.issubset(result.columns):
+        result["publication_rate"] = result[N_PUBLIC] / result[ACADEMIC_AGE]
+        result["log_publication_rate"] = np.log1p(result[N_PUBLIC] / result[ACADEMIC_AGE])
+    if N_PUBLIC in result.columns:
+        result["log_n_public"] = np.log1p(result[N_PUBLIC])
     if "n_affiliations" in result.columns:
         result["log_n_affiliations"] = np.log1p(result["n_affiliations"])
-    if "academic_age" in result.columns:
-        result["academic_age_sq"] = result["academic_age"] ** 2
+    if ACADEMIC_AGE in result.columns:
+        result["academic_age_sq"] = result[ACADEMIC_AGE] ** 2
     return result
 
 

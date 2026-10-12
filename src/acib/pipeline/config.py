@@ -26,6 +26,17 @@ from acib.regression.config import (
     RegressionOutcomeType,
     RegressionOutputs,
 )
+from acib.statistical_matching.config import (
+    StatisticalMatchingConfig,
+    StatisticalMatchingOutputs,
+)
+from acib.statistical_matching.constants import (
+    DEFAULT_CEM_CUTPOINTS,
+    DEFAULT_COVARIATES,
+    DEFAULT_METHODS,
+    DEFAULT_OUTCOMES,
+    DEFAULT_TITLE_EXCLUSIONS,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -52,6 +63,7 @@ class PipelineConfig:
     name_disambiguation: NameDisambiguationConfig | None = None
     mobility: MobilityConfig | None = None
     regression: RegressionConfig | None = None
+    statistical_matching: StatisticalMatchingConfig | None = None
 
 
 def resolve_config_path(value: str | Path, base: Path = PROJECT_ROOT) -> Path:
@@ -383,6 +395,153 @@ def load_regression_data(config: RegressionConfig) -> LoadedRegressionInputs:
     :raises FileNotFoundError: If the regression artifact is absent.
     """
     return config.load_inputs()
+
+
+def load_statistical_matching_config(path: str | Path) -> StatisticalMatchingConfig:
+    """Load matching settings from the regression-owned input and metadata.
+
+    :param path: Shared pipeline TOML file.
+    :return: Resolved statistical-matching configuration.
+    :raises KeyError: If producer declarations or stage outputs are missing.
+    :raises TypeError: If TOML values use invalid types.
+    :raises ValueError: If outcomes, settings, or paths are malformed.
+    """
+    raw = _read_config(path)
+    section = _table(raw, "statistical_matching", required=True)
+    _reject_stage_path_duplicates(
+        section,
+        "statistical_matching",
+        ("input_path", "output_dir", "regression_input", "author_regression_input_path"),
+    )
+    allowed_settings = {
+        "outcomes",
+        "covariates",
+        "methods",
+        "treatment_variable",
+        "treated_value",
+        "estimand",
+        "exclude_titles",
+        "cem_cutpoints",
+        "balance_threshold",
+        "covariance_type",
+        "drop_missing",
+        "outputs",
+    }
+    unexpected_settings = set(section) - allowed_settings
+    if unexpected_settings:
+        raise ValueError(
+            "Unrecognized [statistical_matching] settings: "
+            + ", ".join(sorted(unexpected_settings))
+        )
+    regression = _table(raw, "regression", required=True)
+    reg_outputs = _table(regression, "outputs", required=True)
+    if "regression_input" not in reg_outputs:
+        raise KeyError("Missing [regression.outputs].regression_input")
+    if not isinstance(reg_outputs["regression_input"], str):
+        raise TypeError("[regression.outputs].regression_input must be a path string")
+    metadata = _load_regression_outcome_metadata(regression)
+    outcomes = section.get("outcomes", list(DEFAULT_OUTCOMES))
+    if (
+        not isinstance(outcomes, list)
+        or not outcomes
+        or any(not isinstance(x, str) for x in outcomes)
+    ):
+        raise TypeError("statistical_matching.outcomes must be a nonempty string array")
+    if len(set(outcomes)) != len(outcomes):
+        raise ValueError("statistical_matching.outcomes must not contain duplicates")
+    unknown = set(outcomes) - metadata.keys()
+    if unknown:
+        raise ValueError(
+            "Selected outcomes lack regression metadata: " + ", ".join(sorted(unknown))
+        )
+    outputs_section = section.get("outputs")
+    output_keys = (
+        "balance_summary",
+        "covariate_balance",
+        "outcome_effects_long",
+        "adjusted_outcome_means",
+        "outcome_effects_wide",
+        "outcome_standard_errors_wide",
+        "method_diagnostics",
+        "propensity_scores",
+        "propensity_scores_by_method",
+        "matching_formulas",
+        "latex_dir",
+        "plots_dir",
+    )
+    if not isinstance(outputs_section, dict):
+        raise KeyError("Missing required [statistical_matching.outputs] table")
+    missing = set(output_keys) - outputs_section.keys()
+    unexpected = outputs_section.keys() - set(output_keys)
+    if missing or unexpected:
+        raise ValueError(
+            f"Matching outputs missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+        )
+    paths = {}
+    for key in output_keys:
+        value = outputs_section[key]
+        if not isinstance(value, str):
+            raise TypeError(f"[statistical_matching.outputs].{key} must be a path string")
+        paths[key] = resolve_config_path(value)
+    covariates = section.get("covariates", list(DEFAULT_COVARIATES))
+    methods = section.get("methods", list(DEFAULT_METHODS))
+    excluded = section.get("exclude_titles", list(DEFAULT_TITLE_EXCLUSIONS))
+    cutpoints = section.get("cem_cutpoints")
+    if (
+        not isinstance(covariates, list)
+        or not covariates
+        or any(not isinstance(v, str) for v in covariates)
+    ):
+        raise TypeError("statistical_matching.covariates must be a nonempty string array")
+    if not isinstance(methods, list) or not methods or any(not isinstance(v, str) for v in methods):
+        raise TypeError("statistical_matching.methods must be a nonempty string array")
+    if not isinstance(excluded, list) or any(not isinstance(v, str) for v in excluded):
+        raise TypeError("statistical_matching.exclude_titles must be a string array")
+    parsed_cuts: dict[str, tuple[float, ...]]
+    if cutpoints is None:
+        parsed_cuts = {
+            key: tuple(float(value) for value in values)
+            for key, values in DEFAULT_CEM_CUTPOINTS.items()
+        }
+    else:
+        if not isinstance(cutpoints, dict):
+            raise TypeError("statistical_matching.cem_cutpoints must be a table")
+        parsed_cuts = {}
+        for key, values in cutpoints.items():
+            if not isinstance(values, list) or any(
+                not isinstance(v, (int, float)) or isinstance(v, bool) for v in values
+            ):
+                raise TypeError(f"cem_cutpoints.{key} must be a numeric array")
+            parsed_cuts[key] = tuple(float(v) for v in values)
+    treated = section.get("treated_value", True)
+    drop_missing = section.get("drop_missing", True)
+    if not isinstance(treated, bool) or not isinstance(drop_missing, bool):
+        raise TypeError("treated_value and drop_missing must be TOML booleans")
+    estimand = section.get("estimand", "ATT")
+    treatment = section.get("treatment_variable", "is_inbred")
+    covariance = section.get("covariance_type", "HC3")
+    if not all(isinstance(v, str) and v for v in (estimand, treatment, covariance)):
+        raise TypeError("estimand, treatment_variable, covariance_type must be nonempty strings")
+    threshold = section.get("balance_threshold", 0.10)
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool) or not threshold > 0:
+        raise ValueError("statistical_matching.balance_threshold must be positive")
+    return StatisticalMatchingConfig(
+        input_path=resolve_config_path(reg_outputs["regression_input"]),
+        outputs=StatisticalMatchingOutputs(**paths),
+        outcomes=tuple(outcomes),
+        outcome_types={name: metadata[name].outcome_type for name in outcomes},
+        outcome_aliases={name: metadata[name].alias for name in outcomes},
+        covariates=tuple(covariates),
+        methods=tuple(methods),
+        treatment_variable=treatment,
+        treated_value=treated,
+        estimand=estimand,
+        exclude_titles=tuple(excluded),
+        cem_cutpoints=parsed_cuts,
+        balance_threshold=float(threshold),
+        covariance_type=covariance,
+        drop_missing=drop_missing,
+    )
 
 
 def _load_mobility_outputs(section: Mapping[str, Any]) -> MobilityOutputs:
