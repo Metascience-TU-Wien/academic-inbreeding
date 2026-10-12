@@ -183,32 +183,14 @@ def test_professor_plot_loads_parquet_config(tmp_path: Path) -> None:
 def test_plot_configs_use_the_configured_regression_artifact_paths(tmp_path: Path) -> None:
     from acib.regression.config import RegressionOutputs
 
-    outputs = RegressionOutputs(
-        regression_input=tmp_path / "generated" / "regression.csv",
-        professor_article_input=tmp_path / "generated" / "professor.parquet",
-        professor_article_diagnostics=tmp_path / "diagnostics" / "professor.csv",
-        asjc_field_share_diagnostics=tmp_path / "diagnostics" / "fields.csv",
-        regression_input_diagnostics=tmp_path / "diagnostics" / "input.csv",
-        model_coefficients=tmp_path / "models" / "coefficients.csv",
-        model_fit_statistics=tmp_path / "models" / "fit.csv",
-        dependent_variable_descriptives=tmp_path / "models" / "descriptives.csv",
-        aic_bic_comparison=tmp_path / "models" / "aic.csv",
-        aic_bic_ranked=tmp_path / "models" / "ranked.csv",
-        best_models_by_aic=tmp_path / "models" / "best_aic.csv",
-        best_models_by_bic=tmp_path / "models" / "best_bic.csv",
-        inbreeding_discipline_spec_comparison=tmp_path / "models" / "inbreeding.csv",
-        model_formulas=tmp_path / "models" / "formulas.txt",
-        model_summaries=tmp_path / "models" / "summaries.txt",
-        latex_dir=tmp_path / "reports" / "latex",
-        plots_dir=tmp_path / "reports" / "plots",
-    )
+    outputs = RegressionOutputs(directory=tmp_path / "reports")
     model9 = Model9InbreedingPredictionPlotConfig(
         input_path=outputs.regression_input, output_dir=outputs.plots_dir
     )
     violin = ProfessorViolinPlotConfig(
         input_path=outputs.professor_article_input, output_dir=outputs.plots_dir
     )
-    assert model9.input_path == tmp_path / "generated" / "regression.csv"
+    assert model9.input_path == tmp_path / "reports" / "author_regression_input.csv"
     assert model9.output_dir == tmp_path / "reports" / "plots"
-    assert violin.input_path == tmp_path / "generated" / "professor.parquet"
+    assert violin.input_path == tmp_path / "reports" / "professor_article_input.parquet"
     assert violin.output_dir == tmp_path / "reports" / "plots"

@@ -9,13 +9,25 @@ from pathlib import Path
 
 from acib.regression.constants import DEFAULT_REGRESSION_OUTCOME_METADATA
 from acib.statistical_matching.constants import (
+    ADJUSTED_OUTCOME_MEANS_FILENAME,
     ATT_ESTIMAND,
+    BALANCE_SUMMARY_FILENAME,
     BALANCE_THRESHOLD,
+    COVARIATE_BALANCE_FILENAME,
     DEFAULT_CEM_CUTPOINTS,
     DEFAULT_COVARIATES,
     DEFAULT_METHODS,
     DEFAULT_OUTCOMES,
     DEFAULT_TITLE_EXCLUSIONS,
+    LATEX_DIRECTORY_NAME,
+    MATCHING_FORMULAS_FILENAME,
+    METHOD_DIAGNOSTICS_FILENAME,
+    OUTCOME_EFFECTS_LONG_FILENAME,
+    OUTCOME_EFFECTS_WIDE_FILENAME,
+    OUTCOME_STANDARD_ERRORS_WIDE_FILENAME,
+    PLOTS_DIRECTORY_NAME,
+    PROPENSITY_SCORES_BY_METHOD_FILENAME,
+    PROPENSITY_SCORES_FILENAME,
     TREATED_VALUE,
     TREATMENT_VARIABLE,
 )
@@ -23,27 +35,89 @@ from acib.statistical_matching.constants import (
 
 @dataclass(frozen=True, slots=True)
 class StatisticalMatchingOutputs:
-    """Explicit files and collection roots owned by matching."""
+    """Output directory owned by statistical matching."""
 
-    balance_summary: Path
-    covariate_balance: Path
-    outcome_effects_long: Path
-    adjusted_outcome_means: Path
-    outcome_effects_wide: Path
-    outcome_standard_errors_wide: Path
-    method_diagnostics: Path
-    propensity_scores: Path
-    propensity_scores_by_method: Path
-    matching_formulas: Path
-    latex_dir: Path
-    plots_dir: Path
+    directory: Path
+
+    @property
+    def balance_summary(self) -> Path:
+        """Return the balance-summary artifact path."""
+        return self.directory / BALANCE_SUMMARY_FILENAME
+
+    @property
+    def covariate_balance(self) -> Path:
+        """Return the covariate-balance artifact path."""
+        return self.directory / COVARIATE_BALANCE_FILENAME
+
+    @property
+    def outcome_effects_long(self) -> Path:
+        """Return the long outcome-effects artifact path."""
+        return self.directory / OUTCOME_EFFECTS_LONG_FILENAME
+
+    @property
+    def adjusted_outcome_means(self) -> Path:
+        """Return the adjusted-outcome-means artifact path."""
+        return self.directory / ADJUSTED_OUTCOME_MEANS_FILENAME
+
+    @property
+    def outcome_effects_wide(self) -> Path:
+        """Return the wide outcome-effects artifact path."""
+        return self.directory / OUTCOME_EFFECTS_WIDE_FILENAME
+
+    @property
+    def outcome_standard_errors_wide(self) -> Path:
+        """Return the wide outcome-standard-errors artifact path."""
+        return self.directory / OUTCOME_STANDARD_ERRORS_WIDE_FILENAME
+
+    @property
+    def method_diagnostics(self) -> Path:
+        """Return the method-diagnostics artifact path."""
+        return self.directory / METHOD_DIAGNOSTICS_FILENAME
+
+    @property
+    def propensity_scores(self) -> Path:
+        """Return the propensity-scores artifact path."""
+        return self.directory / PROPENSITY_SCORES_FILENAME
+
+    @property
+    def propensity_scores_by_method(self) -> Path:
+        """Return the per-method propensity-scores artifact path."""
+        return self.directory / PROPENSITY_SCORES_BY_METHOD_FILENAME
+
+    @property
+    def matching_formulas(self) -> Path:
+        """Return the matching-formulas report path."""
+        return self.directory / MATCHING_FORMULAS_FILENAME
+
+    @property
+    def latex_dir(self) -> Path:
+        """Return the LaTeX report directory."""
+        return self.directory / LATEX_DIRECTORY_NAME
+
+    @property
+    def plots_dir(self) -> Path:
+        """Return the plot directory."""
+        return self.directory / PLOTS_DIRECTORY_NAME
 
     def all_paths(self) -> tuple[Path, ...]:
         """Return every configured output path.
 
         :return: Paths in dataclass field order.
         """
-        return tuple(getattr(self, name) for name in self.__dataclass_fields__)
+        return (
+            self.balance_summary,
+            self.covariate_balance,
+            self.outcome_effects_long,
+            self.adjusted_outcome_means,
+            self.outcome_effects_wide,
+            self.outcome_standard_errors_wide,
+            self.method_diagnostics,
+            self.propensity_scores,
+            self.propensity_scores_by_method,
+            self.matching_formulas,
+            self.latex_dir,
+            self.plots_dir,
+        )
 
 
 @dataclass(frozen=True, slots=True)

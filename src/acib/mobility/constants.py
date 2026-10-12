@@ -2,6 +2,11 @@
 
 """Mobility-specific DataFrame columns and configuration values."""
 
+AUTHOR_AFFILIATIONS_FILENAME = "author_affiliations.csv"
+AUTHOR_AFFILIATIONS_UNIQUE_FILENAME = "author_affiliations_unique.csv"
+AUTHOR_INBREEDING_PROXY_FILENAME = "author_inbreeding_proxy.csv"
+AUTHOR_ARTICLES_FILENAME = "author_articles.csv"
+
 # Exploded publication-affiliation and derived publication-evidence columns.
 ARTICLE_AFFILIATION_ID = "author_afids"
 ARTICLE_AFFILIATION_INDEX = "affiliation_idx"

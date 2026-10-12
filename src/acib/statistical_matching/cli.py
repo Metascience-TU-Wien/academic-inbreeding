@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 
 from acib.pipeline.config import PROJECT_ROOT, load_statistical_matching_config
+from acib.statistical_matching.constants import COVARIATE_BALANCE_FIGURE_FILENAME
 from acib.statistical_matching.workflow import run_statistical_matching
 
 
@@ -33,6 +34,6 @@ def main(argv: list[str] | None = None) -> None:
         config.check_input_exists()
     result = run_statistical_matching(config)
     print(result.console_table)
-    plot_path = config.outputs.plots_dir / "covariate_balance.png"
+    plot_path = config.outputs.plots_dir / COVARIATE_BALANCE_FIGURE_FILENAME
     if plot_path.exists():
         print(f"Wrote covariate balance plot: {plot_path}")

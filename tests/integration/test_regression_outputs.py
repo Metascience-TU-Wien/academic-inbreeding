@@ -56,25 +56,7 @@ def regression_frame() -> pd.DataFrame:
 
 
 def outputs_under(path: Path) -> RegressionOutputs:
-    return RegressionOutputs(
-        regression_input=path / "regression_input.csv",
-        professor_article_input=path / "professor_article_input.parquet",
-        professor_article_diagnostics=path / "professor_article_diagnostics.csv",
-        asjc_field_share_diagnostics=path / "field_share_diagnostics.csv",
-        regression_input_diagnostics=path / "input_diagnostics.csv",
-        model_coefficients=path / "coefficients.csv",
-        model_fit_statistics=path / "fit_statistics.csv",
-        dependent_variable_descriptives=path / "descriptives.csv",
-        aic_bic_comparison=path / "aic_bic.csv",
-        aic_bic_ranked=path / "aic_bic_ranked.csv",
-        best_models_by_aic=path / "best_aic.csv",
-        best_models_by_bic=path / "best_bic.csv",
-        inbreeding_discipline_spec_comparison=path / "inbreeding_comparison.csv",
-        model_formulas=path / "formulas.txt",
-        model_summaries=path / "summaries.txt",
-        latex_dir=path / "latex",
-        plots_dir=path / "plots",
-    )
+    return RegressionOutputs(directory=path)
 
 
 def pipeline_config(

@@ -17,6 +17,13 @@ from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator, MultipleLocator
 
+from acib.statistical_matching.constants import (
+    ABSOLUTE_OUTCOME_EFFECTS_FIGURE_FILENAME,
+    COVARIATE_BALANCE_FIGURE_FILENAME,
+    PROPENSITY_SCORE_OVERLAP_BY_METHOD_FIGURE_FILENAME,
+    PROPENSITY_SCORE_OVERLAP_FIGURE_FILENAME,
+)
+
 _BACKGROUND = "#FFFFFF"
 _GRID = "#E4E0D8"
 _BALANCED = "#2F5D7C"
@@ -268,7 +275,7 @@ def write_balance_plot(
     )
     fig.subplots_adjust(left=0.19, right=0.99, top=0.935, bottom=0.20, wspace=0.08, hspace=0.32)
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "covariate_balance.png"
+    path = directory / COVARIATE_BALANCE_FIGURE_FILENAME
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path
@@ -303,7 +310,7 @@ def _write_propensity(data: pd.DataFrame, directory: Path, treatment: str) -> Pa
         ax.hist(values, bins=bins, density=True, histtype="step", linewidth=1.8, color=color)
     _style_overlap(ax)
     fig.subplots_adjust(left=0.12, right=0.985, top=0.93, bottom=0.16)
-    path = directory / "propensity_score_overlap.png"
+    path = directory / PROPENSITY_SCORE_OVERLAP_FIGURE_FILENAME
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path
@@ -374,7 +381,7 @@ def _write_method_overlap(
         fontsize=12,
     )
     fig.subplots_adjust(left=0.10, right=0.985, top=0.94, bottom=0.16, wspace=0.08, hspace=0.30)
-    path = directory / "propensity_score_overlap_by_method.png"
+    path = directory / PROPENSITY_SCORE_OVERLAP_BY_METHOD_FIGURE_FILENAME
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path
@@ -449,7 +456,7 @@ def _write_absolute(
     for ax in axes[len(plotted) :]:
         ax.set_visible(False)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    path = directory / "absolute_outcome_effects.png"
+    path = directory / ABSOLUTE_OUTCOME_EFFECTS_FIGURE_FILENAME
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path

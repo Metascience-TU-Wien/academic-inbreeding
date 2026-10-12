@@ -5,23 +5,43 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from acib.mobility.constants import EARLY_AFFILIATION_METHODS
+from acib.mobility.constants import (
+    AUTHOR_AFFILIATIONS_FILENAME,
+    AUTHOR_AFFILIATIONS_UNIQUE_FILENAME,
+    AUTHOR_ARTICLES_FILENAME,
+    AUTHOR_INBREEDING_PROXY_FILENAME,
+    EARLY_AFFILIATION_METHODS,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class MobilityOutputs:
     """Configured artifacts produced by the mobility stage.
 
-    :param author_affiliations: Per-author affiliation-history CSV.
-    :param author_affiliations_unique: Unique top-level affiliation CSV.
-    :param author_inbreeding_proxy: Author-level inbreeding and mobility CSV.
-    :param author_articles: Unique article-level CSV.
+    :param directory: Directory containing the mobility CSV artifacts.
     """
 
-    author_affiliations: Path
-    author_affiliations_unique: Path
-    author_inbreeding_proxy: Path
-    author_articles: Path
+    directory: Path
+
+    @property
+    def author_affiliations(self) -> Path:
+        """Return the author-affiliations artifact path."""
+        return self.directory / AUTHOR_AFFILIATIONS_FILENAME
+
+    @property
+    def author_affiliations_unique(self) -> Path:
+        """Return the unique-author-affiliations artifact path."""
+        return self.directory / AUTHOR_AFFILIATIONS_UNIQUE_FILENAME
+
+    @property
+    def author_inbreeding_proxy(self) -> Path:
+        """Return the author-inbreeding-proxy artifact path."""
+        return self.directory / AUTHOR_INBREEDING_PROXY_FILENAME
+
+    @property
+    def author_articles(self) -> Path:
+        """Return the author-articles artifact path."""
+        return self.directory / AUTHOR_ARTICLES_FILENAME
 
     def all_paths(self) -> tuple[Path, ...]:
         """Return mobility artifact paths in source write order.
@@ -108,7 +128,7 @@ class MobilityConfig:
                 self.authors,
             ),
             (
-                "[name_matching].resolved_matches_output_file_path",
+                "[name_matching.outputs].resolved_researchers",
                 "name_matching",
                 self.researcher_metadata,
             ),

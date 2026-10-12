@@ -627,32 +627,10 @@ def test_pipeline_settings_conversion_keeps_model_families_and_inflation_formula
     )
     from acib.regression.config import RegressionConfig, RegressionOutputs
 
-    paths = {
-        name: tmp_path / f"{name}.csv"
-        for name in (
-            "regression_input",
-            "professor_article_input",
-            "professor_article_diagnostics",
-            "asjc_field_share_diagnostics",
-            "regression_input_diagnostics",
-            "model_coefficients",
-            "model_fit_statistics",
-            "dependent_variable_descriptives",
-            "aic_bic_comparison",
-            "aic_bic_ranked",
-            "best_models_by_aic",
-            "best_models_by_bic",
-            "inbreeding_discipline_spec_comparison",
-            "model_formulas",
-            "model_summaries",
-            "latex_dir",
-            "plots_dir",
-        )
-    }
     config = RegressionConfig(
         article_author_file_path=tmp_path / "articles.csv",
         mobility_author_proxy=tmp_path / "authors.csv",
-        outputs=RegressionOutputs(**paths),
+        outputs=RegressionOutputs(directory=tmp_path),
         dependent_variables={"n_public": "nb", "P_top10": "zinb"},
         zinb_inflation_formulas={"P_top10": "academic_age + C(title)"},
     )

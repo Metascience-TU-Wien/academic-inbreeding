@@ -16,7 +16,7 @@ from acib.name_disambiguation.config import (
     NameDisambiguationConfig,
     NameDisambiguationOutputs,
 )
-from acib.name_matching.config import NameMatchingConfig
+from acib.name_matching.config import NameMatchingConfig, NameMatchingOutputs
 from acib.regression.config import (
     LoadedRegressionInputs,
     RegressionConfig,
@@ -158,7 +158,11 @@ def load_name_matching_config(path: str | Path) -> NameMatchingConfig:
     _reject_stage_path_duplicates(
         section,
         "name_matching",
-        ("researcher_file_path", "candidate_authors_file"),
+        (
+            "researcher_file_path",
+            "candidate_authors_file",
+            "resolved_matches_output_file_path",
+        ),
     )
     data = _table(raw, "data", required=False)
     researchers = _data_path(data, "researcher_file_path", required=True)
@@ -174,15 +178,24 @@ def load_name_matching_config(path: str | Path) -> NameMatchingConfig:
     return NameMatchingConfig(
         researcher_file_path=researchers,
         candidate_authors_file=authors,
-        resolved_matches_output_file_path=resolve_config_path(
-            section["resolved_matches_output_file_path"]
-        ),
+        outputs=_load_name_matching_outputs(raw),
         enable_given_name_aliases=aliases,
         enable_organisation_filter=organization_filter,
         existing_scopus_author_id_column=section.get("existing_scopus_author_id_column"),
         max_workers=_positive_integer(section, "max_workers", 3),
         encoding=encoding,
     )
+
+
+def _load_name_matching_outputs(raw: Mapping[str, Any]) -> NameMatchingOutputs:
+    """Load the required matching output directory."""
+    section = _table(_table(raw, "name_matching", required=True), "outputs", required=True)
+    if set(section) != {"directory"}:
+        raise ValueError("[name_matching.outputs] must contain only 'directory'")
+    directory = section["directory"]
+    if not isinstance(directory, str):
+        raise TypeError("[name_matching.outputs].directory must be a path string")
+    return NameMatchingOutputs(directory=resolve_config_path(directory))
 
 
 def load_name_disambiguation_config(path: str | Path) -> NameDisambiguationConfig:
@@ -214,7 +227,7 @@ def load_name_disambiguation_config(path: str | Path) -> NameDisambiguationConfi
     if not isinstance(reporting, bool):
         raise TypeError("name_disambiguation.enable_reporting must be a TOML boolean")
     return NameDisambiguationConfig(
-        matching_output=matching.resolved_matches_output_file_path,
+        matching_output=matching.outputs.resolved_researchers,
         article_author_file_path=article_author,
         article_reference_file_path=article_reference,
         outputs=_load_disambiguation_outputs(section),
@@ -230,34 +243,17 @@ def load_name_disambiguation_config(path: str | Path) -> NameDisambiguationConfi
 
 
 def _load_disambiguation_outputs(section: Mapping[str, Any]) -> NameDisambiguationOutputs:
-    output_names = {
-        "pair_decisions": "pair_decisions.csv",
-        "clusters": "clusters.csv",
-        "final_author_selection": "final_author_selection.csv",
-        "final_author_selection_scores": "final_author_selection_scores.csv",
-        "report_txt": "report.txt",
-        "report_jsonl": "report.jsonl",
-    }
     outputs = section.get("outputs")
     if outputs is None:
         raise KeyError("Missing required [name_disambiguation.outputs] table")
     if not isinstance(outputs, dict):
         raise TypeError("[name_disambiguation.outputs] must be a TOML table")
-    missing = set(output_names) - outputs.keys()
-    if missing:
-        raise KeyError("Missing output declarations: " + ", ".join(sorted(missing)))
-    unexpected = outputs.keys() - output_names.keys()
-    if unexpected:
-        raise ValueError(
-            "Unrecognized [name_disambiguation.outputs] keys: " + ", ".join(sorted(unexpected))
-        )
-    resolved: dict[str, Path] = {}
-    for key in output_names:
-        value = outputs[key]
-        if not isinstance(value, str):
-            raise TypeError(f"[name_disambiguation.outputs].{key} must be a path string")
-        resolved[key] = resolve_config_path(value)
-    return NameDisambiguationOutputs(**resolved)
+    if set(outputs) != {"directory"}:
+        raise ValueError("[name_disambiguation.outputs] must contain only 'directory'")
+    value = outputs["directory"]
+    if not isinstance(value, str):
+        raise TypeError("[name_disambiguation.outputs].directory must be a path string")
+    return NameDisambiguationOutputs(directory=resolve_config_path(value))
 
 
 def load_pipeline_config(path: str | Path) -> PipelineConfig:
@@ -297,12 +293,16 @@ def load_pipeline_config(path: str | Path) -> PipelineConfig:
     )
     mobility_config = load_mobility_config(path) if "mobility" in raw else None
     regression_config = load_regression_config(path) if "regression" in raw else None
+    statistical_matching_config = (
+        load_statistical_matching_config(path) if "statistical_matching" in raw else None
+    )
     return PipelineConfig(
         data_config,
         matching_config,
         disambiguation_config,
         mobility_config,
         regression_config,
+        statistical_matching_config,
     )
 
 
@@ -370,7 +370,7 @@ def load_mobility_config(path: str | Path) -> MobilityConfig:
         raise ValueError("min_publication_history_years must be a nonnegative integer or null")
     return MobilityConfig(
         authors=authors,
-        researcher_metadata=matching.resolved_matches_output_file_path,
+        researcher_metadata=matching.outputs.resolved_researchers,
         article_author=articles,
         affiliations=gpkg,
         outputs=outputs,
@@ -434,11 +434,7 @@ def load_statistical_matching_config(path: str | Path) -> StatisticalMatchingCon
             + ", ".join(sorted(unexpected_settings))
         )
     regression = _table(raw, "regression", required=True)
-    reg_outputs = _table(regression, "outputs", required=True)
-    if "regression_input" not in reg_outputs:
-        raise KeyError("Missing [regression.outputs].regression_input")
-    if not isinstance(reg_outputs["regression_input"], str):
-        raise TypeError("[regression.outputs].regression_input must be a path string")
+    reg_outputs = _load_regression_outputs(_table(regression, "outputs", required=True))
     metadata = _load_regression_outcome_metadata(regression)
     outcomes = section.get("outcomes", list(DEFAULT_OUTCOMES))
     if (
@@ -455,34 +451,13 @@ def load_statistical_matching_config(path: str | Path) -> StatisticalMatchingCon
             "Selected outcomes lack regression metadata: " + ", ".join(sorted(unknown))
         )
     outputs_section = section.get("outputs")
-    output_keys = (
-        "balance_summary",
-        "covariate_balance",
-        "outcome_effects_long",
-        "adjusted_outcome_means",
-        "outcome_effects_wide",
-        "outcome_standard_errors_wide",
-        "method_diagnostics",
-        "propensity_scores",
-        "propensity_scores_by_method",
-        "matching_formulas",
-        "latex_dir",
-        "plots_dir",
-    )
     if not isinstance(outputs_section, dict):
         raise KeyError("Missing required [statistical_matching.outputs] table")
-    missing = set(output_keys) - outputs_section.keys()
-    unexpected = outputs_section.keys() - set(output_keys)
-    if missing or unexpected:
-        raise ValueError(
-            f"Matching outputs missing={sorted(missing)}, unexpected={sorted(unexpected)}"
-        )
-    paths = {}
-    for key in output_keys:
-        value = outputs_section[key]
-        if not isinstance(value, str):
-            raise TypeError(f"[statistical_matching.outputs].{key} must be a path string")
-        paths[key] = resolve_config_path(value)
+    if set(outputs_section) != {"directory"}:
+        raise ValueError("[statistical_matching.outputs] must contain only 'directory'")
+    output_directory = outputs_section["directory"]
+    if not isinstance(output_directory, str):
+        raise TypeError("[statistical_matching.outputs].directory must be a path string")
     covariates = section.get("covariates", list(DEFAULT_COVARIATES))
     methods = section.get("methods", list(DEFAULT_METHODS))
     excluded = section.get("exclude_titles", list(DEFAULT_TITLE_EXCLUSIONS))
@@ -526,8 +501,8 @@ def load_statistical_matching_config(path: str | Path) -> StatisticalMatchingCon
     if not isinstance(threshold, (int, float)) or isinstance(threshold, bool) or not threshold > 0:
         raise ValueError("statistical_matching.balance_threshold must be positive")
     return StatisticalMatchingConfig(
-        input_path=resolve_config_path(reg_outputs["regression_input"]),
-        outputs=StatisticalMatchingOutputs(**paths),
+        input_path=reg_outputs.regression_input,
+        outputs=StatisticalMatchingOutputs(directory=resolve_config_path(output_directory)),
         outcomes=tuple(outcomes),
         outcome_types={name: metadata[name].outcome_type for name in outcomes},
         outcome_aliases={name: metadata[name].alias for name in outcomes},
@@ -552,25 +527,12 @@ def _load_mobility_outputs(section: Mapping[str, Any]) -> MobilityOutputs:
     :raises KeyError: If an output declaration is missing.
     :raises TypeError: If an output path is not a string.
     """
-    output_keys = (
-        "author_affiliations",
-        "author_affiliations_unique",
-        "author_inbreeding_proxy",
-        "author_articles",
-    )
-    missing = [key for key in output_keys if key not in section]
-    if missing:
-        raise KeyError("Missing [mobility.outputs] declarations: " + ", ".join(missing))
-    unexpected = set(section) - set(output_keys)
-    if unexpected:
-        raise ValueError("Unrecognized [mobility.outputs] keys: " + ", ".join(sorted(unexpected)))
-    paths: dict[str, Path] = {}
-    for key in output_keys:
-        value = section[key]
-        if not isinstance(value, str):
-            raise TypeError(f"[mobility.outputs].{key} must be a path string")
-        paths[key] = resolve_config_path(value)
-    return MobilityOutputs(**paths)
+    if set(section) != {"directory"}:
+        raise ValueError("[mobility.outputs] must contain only 'directory'")
+    value = section["directory"]
+    if not isinstance(value, str):
+        raise TypeError("[mobility.outputs].directory must be a path string")
+    return MobilityOutputs(directory=resolve_config_path(value))
 
 
 def load_regression_config(path: str | Path) -> RegressionConfig:
@@ -680,38 +642,12 @@ def _load_regression_outputs(section: Mapping[str, Any]) -> RegressionOutputs:
     :raises TypeError: If an artifact path is not a string.
     :raises ValueError: If unrecognized output keys are configured.
     """
-    output_keys = (
-        "regression_input",
-        "professor_article_input",
-        "professor_article_diagnostics",
-        "asjc_field_share_diagnostics",
-        "regression_input_diagnostics",
-        "model_coefficients",
-        "model_fit_statistics",
-        "dependent_variable_descriptives",
-        "aic_bic_comparison",
-        "aic_bic_ranked",
-        "best_models_by_aic",
-        "best_models_by_bic",
-        "inbreeding_discipline_spec_comparison",
-        "model_formulas",
-        "model_summaries",
-        "latex_dir",
-        "plots_dir",
-    )
-    missing = [key for key in output_keys if key not in section]
-    if missing:
-        raise KeyError("Missing [regression.outputs] declarations: " + ", ".join(missing))
-    unexpected = set(section) - set(output_keys)
-    if unexpected:
-        raise ValueError("Unrecognized [regression.outputs] keys: " + ", ".join(sorted(unexpected)))
-    paths: dict[str, Path] = {}
-    for key in output_keys:
-        value = section[key]
-        if not isinstance(value, str):
-            raise TypeError(f"[regression.outputs].{key} must be a path string")
-        paths[key] = resolve_config_path(value)
-    return RegressionOutputs(**paths)
+    if set(section) != {"directory"}:
+        raise ValueError("[regression.outputs] must contain only 'directory'")
+    value = section["directory"]
+    if not isinstance(value, str):
+        raise TypeError("[regression.outputs].directory must be a path string")
+    return RegressionOutputs(directory=resolve_config_path(value))
 
 
 def _load_regression_dependent_variables(

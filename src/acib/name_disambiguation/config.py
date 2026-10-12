@@ -7,25 +7,51 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from acib.name_disambiguation.constants import (
+    CLUSTERS_FILENAME,
+    FINAL_AUTHOR_SELECTION_FILENAME,
+    FINAL_AUTHOR_SELECTION_SCORES_FILENAME,
+    PAIR_DECISIONS_FILENAME,
+    REPORT_JSONL_FILENAME,
+    REPORT_TXT_FILENAME,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class NameDisambiguationOutputs:
-    """Paths for the six disambiguation artifacts.
+    """Output directory with canonical paths for six disambiguation artifacts."""
 
-    :param pair_decisions: Pairwise decision CSV.
-    :param clusters: Cluster-membership CSV.
-    :param final_author_selection: Final researcher-selection CSV.
-    :param final_author_selection_scores: Candidate-cluster score CSV.
-    :param report_txt: Human-readable report path.
-    :param report_jsonl: JSON-lines report path.
-    """
+    directory: Path
 
-    pair_decisions: Path
-    clusters: Path
-    final_author_selection: Path
-    final_author_selection_scores: Path
-    report_txt: Path
-    report_jsonl: Path
+    @property
+    def pair_decisions(self) -> Path:
+        """Return the pairwise-decision CSV path."""
+        return self.directory / PAIR_DECISIONS_FILENAME
+
+    @property
+    def clusters(self) -> Path:
+        """Return the cluster-membership CSV path."""
+        return self.directory / CLUSTERS_FILENAME
+
+    @property
+    def final_author_selection(self) -> Path:
+        """Return the final researcher-selection CSV path."""
+        return self.directory / FINAL_AUTHOR_SELECTION_FILENAME
+
+    @property
+    def final_author_selection_scores(self) -> Path:
+        """Return the candidate-cluster score CSV path."""
+        return self.directory / FINAL_AUTHOR_SELECTION_SCORES_FILENAME
+
+    @property
+    def report_txt(self) -> Path:
+        """Return the human-readable report path."""
+        return self.directory / REPORT_TXT_FILENAME
+
+    @property
+    def report_jsonl(self) -> Path:
+        """Return the JSON-lines report path."""
+        return self.directory / REPORT_JSONL_FILENAME
 
     def all_paths(self) -> tuple[Path, ...]:
         """Return output paths in write order.

@@ -16,6 +16,8 @@ from acib.statistical_matching.constants import (
     ABSOLUTE_P_OUTCOMES,
     DEFAULT_METHODS,
     DEFAULT_OUTCOMES,
+    LATEX_FILENAME_PREFIX,
+    LATEX_FILENAME_SUFFIX,
     PP_OUTCOMES,
 )
 
@@ -59,7 +61,8 @@ def latex_tables(effects: pd.DataFrame, config: StatisticalMatchingConfig) -> di
             outcome for outcome in config.outcomes if config.outcome_types.get(outcome) == family
         )
         if outcomes:
-            tables[f"matching_results_{family}.tex"] = statistical_matching_latex_table(
+            filename = f"{LATEX_FILENAME_PREFIX}{family}{LATEX_FILENAME_SUFFIX}"
+            tables[filename] = statistical_matching_latex_table(
                 effects,
                 covariates=config.covariates,
                 covariance_type=config.covariance_type,

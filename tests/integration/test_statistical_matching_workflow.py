@@ -12,48 +12,34 @@ from acib.statistical_matching.workflow import (
 )
 
 
-def _write_config(path: Path, *, absolute_input: str | None = None) -> None:
-    outputs = [
-        "balance_summary",
-        "covariate_balance",
-        "outcome_effects_long",
-        "adjusted_outcome_means",
-        "outcome_effects_wide",
-        "outcome_standard_errors_wide",
-        "method_diagnostics",
-        "propensity_scores",
-        "propensity_scores_by_method",
-        "matching_formulas",
-        "latex_dir",
-        "plots_dir",
-    ]
-    text = "\n".join(
-        [
-            "[data]",
-            'researcher_file_path = "unused/researchers.csv"',
-            'candidate_authors_file = "unused/authors.csv"',
-            "[name_matching]",
-            'resolved_matches_output_file_path = "unused/matches.csv"',
-            "[regression.outputs]",
-            'regression_input = "data/generated/regression_input.csv"',
-            "[regression.outcome_metadata.hazen_perc_med]",
-            'outcome_type = "relative"',
-            'alias = "mwPR"',
-            "[regression.outcome_metadata.pp_top_10]",
-            'outcome_type = "relative"',
-            'alias = "PP(top 10%)"',
-            "[statistical_matching]",
-            'outcomes = ["hazen_perc_med", "pp_top_10"]',
-            "[statistical_matching.outputs]",
-            *[
-                f'{name} = "tmp/matching/{name}' + ("" if name.endswith("_dir") else ".csv") + '"'
-                for name in outputs
-            ],
-        ]
+def _write_config(path: Path) -> None:
+    path.write_text(
+        """[data]
+researcher_file_path = "unused/researchers.csv"
+candidate_authors_file = "unused/authors.csv"
+
+[name_matching.outputs]
+directory = "unused/matches"
+
+[regression.outputs]
+directory = "data/generated"
+
+[regression.outcome_metadata.hazen_perc_med]
+outcome_type = "relative"
+alias = "mwPR"
+
+[regression.outcome_metadata.pp_top_10]
+outcome_type = "relative"
+alias = "PP(top 10%)"
+
+[statistical_matching]
+outcomes = ["hazen_perc_med", "pp_top_10"]
+
+[statistical_matching.outputs]
+directory = "tmp/matching"
+""",
+        encoding="utf-8",
     )
-    if absolute_input:
-        text = text.replace("data/generated/regression_input.csv", absolute_input, 1)
-    path.write_text(text, encoding="utf-8")
 
 
 def test_matching_config_uses_producer_input_and_root_resolved_paths(
@@ -62,7 +48,9 @@ def test_matching_config_uses_producer_input_and_root_resolved_paths(
     config_path = tmp_path / "pipeline.toml"
     _write_config(config_path)
     config = load_statistical_matching_config(config_path)
-    assert config.input_path == (PROJECT_ROOT / "data/generated/regression_input.csv").resolve()
+    assert (
+        config.input_path == (PROJECT_ROOT / "data/generated/author_regression_input.csv").resolve()
+    )
     assert (
         config.outputs.balance_summary
         == (PROJECT_ROOT / "tmp/matching/balance_summary.csv").resolve()
@@ -74,11 +62,11 @@ def test_matching_config_uses_producer_input_and_root_resolved_paths(
 
 
 def test_absolute_regression_output_path_remains_absolute(tmp_path: Path) -> None:
-    external = (tmp_path / "external.csv").resolve()
+    external = (tmp_path / "absolute" / "author_regression_input.csv").resolve()
     config_path = tmp_path / "pipeline.toml"
     _write_config(config_path)
     text = config_path.read_text().replace(
-        '"data/generated/regression_input.csv"', f'"{external}"', 1
+        'directory = "data/generated"', f'directory = "{external.parent}"', 1
     )
     config_path.write_text(text)
     assert load_statistical_matching_config(config_path).input_path == external
@@ -112,7 +100,7 @@ def test_workflow_runs_from_toml_without_regression_upstream_execution(
     import pandas as pd
 
     config_path = tmp_path / "pipeline.toml"
-    input_path = tmp_path / "regression_input.csv"
+    input_path = tmp_path / "author_regression_input.csv"
     pd.DataFrame(
         {
             "sc_id": range(80),
@@ -127,7 +115,7 @@ def test_workflow_runs_from_toml_without_regression_upstream_execution(
     ).to_csv(input_path, index=False)
     _write_config(config_path)
     text = config_path.read_text().replace(
-        '"data/generated/regression_input.csv"', f'"{input_path}"', 1
+        'directory = "data/generated"', f'directory = "{input_path.parent}"', 1
     )
     config_path.write_text(text)
     result = run_statistical_matching_suite_from_config(

@@ -508,3 +508,19 @@ established by inspecting implementations.
 - No full configured research-data matching workflow was run and no commit was
   created. Full-data scientific comparison and numerical comparison of every
   estimator/outcome remain outside this small-fixture verification.
+
+## Final output-directory configuration refactor
+
+The approved Phase 2 refactor changes every migrated stage to declare a single
+`[stage.outputs].directory`. Fixed filenames remain owned by the producer's
+stage constants and are exposed through output dataclass properties; consumers
+reference those producer properties. Regression and statistical-matching
+LaTeX/plot roots derive as `directory / "latex"` and `directory / "plots"`,
+preserving dynamic filenames. Dependency properties are
+`name_matching.outputs.resolved_researchers`,
+`name_disambiguation.outputs.final_author_selection`,
+`mobility.outputs.author_inbreeding_proxy`, and
+`regression.outputs.regression_input`. Relative paths resolve from the project
+root, absolute paths remain absolute, stages remain independently invoked, and
+stale-artifact detection is not implemented. See `docs/ARCHITECTURE.md` for the
+canonical specification.

@@ -4,6 +4,13 @@
 
 from __future__ import annotations
 
+PAIR_DECISIONS_FILENAME = "pair_decisions.csv"
+CLUSTERS_FILENAME = "clusters.csv"
+FINAL_AUTHOR_SELECTION_FILENAME = "final_author_selection.csv"
+FINAL_AUTHOR_SELECTION_SCORES_FILENAME = "final_author_selection_scores.csv"
+REPORT_TXT_FILENAME = "report.txt"
+REPORT_JSONL_FILENAME = "report.jsonl"
+
 # Publication-evidence input columns.
 AUTHOR_IDS = "author_ids"
 CITING_EID = "citing_eid"

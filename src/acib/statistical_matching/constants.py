@@ -19,6 +19,24 @@ from acib.constants import (
 )
 
 TREATMENT_VARIABLE = IS_INBRED
+BALANCE_SUMMARY_FILENAME = "balance_summary.csv"
+COVARIATE_BALANCE_FILENAME = "covariate_balance.csv"
+OUTCOME_EFFECTS_LONG_FILENAME = "outcome_effects_long.csv"
+ADJUSTED_OUTCOME_MEANS_FILENAME = "adjusted_outcome_means.csv"
+OUTCOME_EFFECTS_WIDE_FILENAME = "outcome_effects_wide.csv"
+OUTCOME_STANDARD_ERRORS_WIDE_FILENAME = "outcome_standard_errors_wide.csv"
+METHOD_DIAGNOSTICS_FILENAME = "method_diagnostics.csv"
+PROPENSITY_SCORES_FILENAME = "propensity_scores.csv"
+PROPENSITY_SCORES_BY_METHOD_FILENAME = "propensity_scores_by_method.csv"
+MATCHING_FORMULAS_FILENAME = "matching_formulas.txt"
+COVARIATE_BALANCE_FIGURE_FILENAME = "covariate_balance.png"
+PROPENSITY_SCORE_OVERLAP_FIGURE_FILENAME = "propensity_score_overlap.png"
+PROPENSITY_SCORE_OVERLAP_BY_METHOD_FIGURE_FILENAME = "propensity_score_overlap_by_method.png"
+ABSOLUTE_OUTCOME_EFFECTS_FIGURE_FILENAME = "absolute_outcome_effects.png"
+LATEX_DIRECTORY_NAME = "latex"
+PLOTS_DIRECTORY_NAME = "plots"
+LATEX_FILENAME_PREFIX = "matching_results_"
+LATEX_FILENAME_SUFFIX = ".tex"
 TREATED_VALUE = True
 ATT_ESTIMAND = "ATT"
 BALANCE_THRESHOLD = 0.10

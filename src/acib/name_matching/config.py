@@ -7,7 +7,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from acib.name_matching.constants import RESOLVED_RESEARCHERS_FILENAME
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+@dataclass(frozen=True, slots=True)
+class NameMatchingOutputs:
+    """Output directory and canonical name-matching artifact path."""
+
+    directory: Path
+
+    @property
+    def resolved_researchers(self) -> Path:
+        """Return the resolved-researchers artifact path."""
+        return self.directory / RESOLVED_RESEARCHERS_FILENAME
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +30,7 @@ class NameMatchingConfig:
 
     researcher_file_path: Path
     candidate_authors_file: Path
-    resolved_matches_output_file_path: Path
+    outputs: NameMatchingOutputs
     enable_given_name_aliases: bool = True
     enable_organisation_filter: bool = True
     existing_scopus_author_id_column: str | None = None

@@ -71,21 +71,5 @@ def synthetic_matching_data() -> pd.DataFrame:
 
 def matching_config(tmp_path: Path, **kwargs: Any) -> StatisticalMatchingConfig:
     """Build config with distinct temporary artifact paths."""
-    names = (
-        "balance_summary",
-        "covariate_balance",
-        "outcome_effects_long",
-        "adjusted_outcome_means",
-        "outcome_effects_wide",
-        "outcome_standard_errors_wide",
-        "method_diagnostics",
-        "propensity_scores",
-        "propensity_scores_by_method",
-        "matching_formulas",
-        "latex_dir",
-        "plots_dir",
-    )
-    outputs = StatisticalMatchingOutputs(
-        **{name: tmp_path / (name if name.endswith("_dir") else f"{name}.csv") for name in names}
-    )
+    outputs = StatisticalMatchingOutputs(directory=tmp_path / "outputs")
     return StatisticalMatchingConfig(input_path=tmp_path / "input.csv", outputs=outputs, **kwargs)

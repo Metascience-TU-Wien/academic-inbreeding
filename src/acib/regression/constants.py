@@ -8,7 +8,9 @@ from acib.constants import (
     ABSOLUTE_P_TOP_1,
     ABSOLUTE_P_TOP_5,
     ABSOLUTE_P_TOP_10,
+    DOMAIN_SHARE_COLUMNS as _DOMAIN_SHARE_COLUMNS,
     EID,
+    FIELD_SHARE_COLUMNS as _FIELD_SHARE_COLUMNS,
     FIRST_YEAR,
     HAZEN_PERCENTILE,
     IS_INBRED,
@@ -37,6 +39,27 @@ from acib.name_disambiguation.constants import (
     AUTHOR_IDS,
     SELECTED_DISAMBIGUATED_CLUSTER_ID as SELECTED_CLUSTER_ID,
 )
+
+DOMAIN_SHARE_COLUMNS = _DOMAIN_SHARE_COLUMNS
+FIELD_SHARE_COLUMNS = _FIELD_SHARE_COLUMNS
+
+AUTHOR_REGRESSION_INPUT_FILENAME = "author_regression_input.csv"
+PROFESSOR_ARTICLE_INPUT_FILENAME = "professor_article_input.parquet"
+PROFESSOR_ARTICLE_DIAGNOSTICS_FILENAME = "professor_article_diagnostics.csv"
+ASJC_FIELD_SHARE_DIAGNOSTICS_FILENAME = "asjc_field_share_diagnostics.csv"
+REGRESSION_INPUT_DIAGNOSTICS_FILENAME = "regression_input_diagnostics.csv"
+MODEL_COEFFICIENTS_FILENAME = "model_coefficients.csv"
+MODEL_FIT_STATISTICS_FILENAME = "model_fit_statistics.csv"
+DEPENDENT_VARIABLE_DESCRIPTIVES_FILENAME = "dependent_variable_descriptives.csv"
+AIC_BIC_COMPARISON_FILENAME = "aic_bic_comparison.csv"
+AIC_BIC_RANKED_FILENAME = "aic_bic_ranked.csv"
+BEST_MODELS_BY_AIC_FILENAME = "best_models_by_aic.csv"
+BEST_MODELS_BY_BIC_FILENAME = "best_models_by_bic.csv"
+INBREEDING_DISCIPLINE_SPEC_COMPARISON_FILENAME = "inbreeding_discipline_spec_comparison.csv"
+MODEL_FORMULAS_FILENAME = "model_formulas.txt"
+MODEL_SUMMARIES_FILENAME = "model_summaries.txt"
+LATEX_DIRECTORY_NAME = "latex"
+PLOTS_DIRECTORY_NAME = "plots"
 
 PAPER_REGRESSION_DEPENDENT_VARIABLES: tuple[str, ...] = (
     HAZEN_PERCENTILE,
