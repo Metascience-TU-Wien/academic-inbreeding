@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from acib.mobility.config import MobilityConfig, MobilityOutputs
+from acib.mobility.config import MobilityOutputs
 from acib.pipeline.config import (
     PROJECT_ROOT,
     load_mobility_config,
@@ -27,18 +27,14 @@ article_reference_file_path = "data/input/article_reference.parquet"
 author_affiliations_file_path = "data/input/author_affiliation.gpkg"
 
 [name_matching]
-resolved_matches_output_file_path = "data/slurm/output/name_matching/resolved.csv"
+[name_matching.outputs]
+directory = "data/slurm/output/name_matching"
 
 [name_disambiguation]
 max_workers = 3
 
 [name_disambiguation.outputs]
-pair_decisions = "data/slurm/output/name_disambiguation/pairs.csv"
-clusters = "data/slurm/output/name_disambiguation/clusters.csv"
-final_author_selection = "data/slurm/output/name_disambiguation/selection.csv"
-final_author_selection_scores = "data/slurm/output/name_disambiguation/scores.csv"
-report_txt = "data/slurm/output/name_disambiguation/report.txt"
-report_jsonl = "data/slurm/output/name_disambiguation/report.jsonl"
+directory = "data/slurm/output/name_disambiguation"
 
 [mobility]
 enable_university_affiliation_inbreeding_detection = true
@@ -52,10 +48,7 @@ max_workers = 5
 {mobility_options}
 
 [mobility.outputs]
-author_affiliations = "data/slurm/output/mobility/author_affiliations.csv"
-author_affiliations_unique = "data/slurm/output/mobility/author_affiliations_unique.csv"
-author_inbreeding_proxy = "data/slurm/output/mobility/author_inbreeding_proxy.csv"
-author_articles = "data/slurm/output/mobility/author_articles.csv"
+directory = "data/slurm/output/mobility"
 """,
         encoding="utf-8",
     )
@@ -67,9 +60,11 @@ def test_mobility_resolves_inputs_from_canonical_owners(tmp_path: Path) -> None:
 
     config = load_mobility_config(config_path)
 
-    assert config.authors == PROJECT_ROOT / "data/slurm/output/name_disambiguation/selection.csv"
-    assert (
-        config.researcher_metadata == PROJECT_ROOT / "data/slurm/output/name_matching/resolved.csv"
+    assert config.authors == (
+        PROJECT_ROOT / "data/slurm/output/name_disambiguation/final_author_selection.csv"
+    )
+    assert config.researcher_metadata == (
+        PROJECT_ROOT / "data/slurm/output/name_matching/resolved_researchers.csv"
     )
     assert config.article_author == PROJECT_ROOT / "data/input/article.parquet"
     assert config.affiliations == PROJECT_ROOT / "data/input/author_affiliation.gpkg"
@@ -109,6 +104,18 @@ def test_mobility_missing_inputs_report_producing_stage_and_data_owner(
 ) -> None:
     config_path = tmp_path / "pipeline.toml"
     write_pipeline_config(config_path)
+    text = (
+        config_path.read_text(encoding="utf-8")
+        .replace(
+            'directory = "data/slurm/output/name_disambiguation"',
+            f'directory = "{tmp_path / "disambiguation"}"',
+        )
+        .replace(
+            'directory = "data/slurm/output/name_matching"',
+            f'directory = "{tmp_path / "matching"}"',
+        )
+    )
+    config_path.write_text(text, encoding="utf-8")
 
     with pytest.raises(FileNotFoundError) as error:
         load_mobility_config(config_path).check_input_paths()
@@ -116,7 +123,7 @@ def test_mobility_missing_inputs_report_producing_stage_and_data_owner(
     message = str(error.value)
     assert "[name_disambiguation.outputs].final_author_selection" in message
     assert "producer: name_disambiguation" in message
-    assert "[name_matching].resolved_matches_output_file_path" in message
+    assert "[name_matching.outputs].resolved_researchers" in message
     assert "producer: name_matching" in message
     assert "[data].article_author_file_path" in message
     assert "[data].author_affiliations_file_path" in message
@@ -145,16 +152,5 @@ def test_mobility_pipeline_config_records_external_geo_input(tmp_path: Path) -> 
 
 
 def test_mobility_outputs_must_be_distinct(tmp_path: Path) -> None:
-    duplicate = tmp_path / "same.csv"
-    outputs = MobilityOutputs(
-        duplicate, duplicate, tmp_path / "proxy.csv", tmp_path / "articles.csv"
-    )
-
-    with pytest.raises(ValueError, match="must be distinct"):
-        MobilityConfig(
-            authors=tmp_path / "authors.csv",
-            researcher_metadata=tmp_path / "researchers.csv",
-            article_author=tmp_path / "articles.parquet",
-            affiliations=tmp_path / "affiliations.gpkg",
-            outputs=outputs,
-        )
+    outputs = MobilityOutputs(directory=tmp_path / "mobility")
+    assert len(set(outputs.all_paths())) == 4

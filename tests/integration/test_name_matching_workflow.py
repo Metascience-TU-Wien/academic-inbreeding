@@ -9,7 +9,7 @@ import pandera.pandas as pa
 import pytest
 
 from acib.constants import AUTHOR_ID, RESEARCHER_ID
-from acib.name_matching.config import NameMatchingConfig
+from acib.name_matching.config import NameMatchingConfig, NameMatchingOutputs
 from acib.name_matching.workflow import run_name_matching
 
 
@@ -65,13 +65,13 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
     )
     researcher_path = tmp_path / "researchers.csv"
     author_path = tmp_path / "authors.csv"
-    output_path = tmp_path / "resolved.csv"
+    output_path = tmp_path / "resolved_researchers.csv"
     researchers.to_csv(researcher_path, index=False)
     authors.to_csv(author_path, index=False)
     config = NameMatchingConfig(
         researcher_file_path=researcher_path,
         candidate_authors_file=author_path,
-        resolved_matches_output_file_path=output_path,
+        outputs=NameMatchingOutputs(directory=output_path.parent),
         existing_scopus_author_id_column="scopus_author_id",
     )
 
@@ -131,7 +131,7 @@ def test_run_name_matching_rejects_invalid_researcher_ids(
     config = NameMatchingConfig(
         researcher_file_path=researcher_path,
         candidate_authors_file=author_path,
-        resolved_matches_output_file_path=output_path,
+        outputs=NameMatchingOutputs(directory=output_path.parent),
         existing_scopus_author_id_column=None,
     )
 

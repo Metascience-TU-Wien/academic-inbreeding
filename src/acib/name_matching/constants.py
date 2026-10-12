@@ -22,6 +22,8 @@ from acib.constants import (
     SURNAME,
 )
 
+RESOLVED_RESEARCHERS_FILENAME = "resolved_researchers.csv"
+
 # Researcher input and output columns.
 RESEARCHER_NAME = "researcher_name"
 RESEARCHER_SURNAME = "person_surname"

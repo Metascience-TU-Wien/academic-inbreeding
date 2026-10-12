@@ -65,14 +65,7 @@ def test_workflow_reads_matcher_and_publication_inputs_and_writes_all_outputs(
     ).to_csv(article_path, index=False)
     pd.DataFrame(columns=["citing_eid", "cited_eid"]).to_csv(reference_path, index=False)
 
-    outputs = NameDisambiguationOutputs(
-        pair_decisions=output_directory / "pair_decisions.csv",
-        clusters=output_directory / "clusters.csv",
-        final_author_selection=output_directory / "final_author_selection.csv",
-        final_author_selection_scores=output_directory / "final_author_selection_scores.csv",
-        report_txt=output_directory / "report.txt",
-        report_jsonl=output_directory / "report.jsonl",
-    )
+    outputs = NameDisambiguationOutputs(directory=output_directory)
     config = NameDisambiguationConfig(
         matching_output=matching_path,
         article_author_file_path=article_path,

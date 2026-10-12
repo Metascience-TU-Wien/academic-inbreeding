@@ -12,6 +12,8 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
+from acib.constants import HAZEN_PERCENTILE
+
 matplotlib.use("Agg")
 
 from matplotlib import pyplot as plt
@@ -46,7 +48,7 @@ class Model9InbreedingOutcome:
 
 DEFAULT_MODEL9_INBREEDING_OUTCOMES = (
     Model9InbreedingOutcome(
-        "hazen_perc_med", "mwPR", ticks=(54.0, 55.0, 56.0, 57.0), x_limits=(53.6, 56.9)
+        HAZEN_PERCENTILE, "mwPR", ticks=(54.0, 55.0, 56.0, 57.0), x_limits=(53.6, 56.9)
     ),
     Model9InbreedingOutcome(
         "pp_top_10", "PP(top 10%)", 100.0, (12.5, 13.0, 13.5, 14.0, 14.5), (12.3, 14.6)

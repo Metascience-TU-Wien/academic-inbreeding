@@ -155,9 +155,9 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
      changes row count.
     """
     started_at = time.perf_counter()
-    if config.resolved_matches_output_file_path.exists() and not overwrite:
+    if config.outputs.resolved_researchers.exists() and not overwrite:
         raise FileExistsError(
-            f"Name-matching output already exists: {config.resolved_matches_output_file_path}. "
+            f"Name-matching output already exists: {config.outputs.resolved_researchers}. "
             "Pass overwrite=True explicitly to replace it."
         )
     _logger.info(
@@ -166,7 +166,7 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
         candidate_authors_file=str(config.candidate_authors_file),
     )
     config.check_paths_exist()
-    output_path: Path = config.resolved_matches_output_file_path.resolve()
+    output_path: Path = config.outputs.resolved_researchers.resolve()
     source_repository = (Path(__file__).resolve().parents[4] / "name-matching-playground").resolve()
     if output_path.is_relative_to(source_repository):
         raise ValueError(

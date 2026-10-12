@@ -25,7 +25,9 @@ input/artifact, declared ownership, actual artifact dependencies, root-relative
 resolution (while retaining external absolute paths), explicit independent
 stage execution, and artifact contracts/schema validation. Do not add
 orchestration, upstream auto-run, speculative config fields, or freshness
-claims; stale detection is absent.
+claims; stale detection is absent. Each `[stage.outputs]` table has one
+`directory`; stage constants own fixed filenames and output properties derive
+artifact paths. Consumers use those properties directly.
 
 In Phase 1, audit the selected stage's complete actual inputs, outputs,
 producers, consumers, schemas/contracts, path declarations and resolution,

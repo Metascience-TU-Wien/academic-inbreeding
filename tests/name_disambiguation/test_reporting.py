@@ -98,14 +98,7 @@ def test_write_outputs_validates_and_writes_all_six_artifacts(
 ) -> None:
     results = disambiguate_batches(author_frame)
     root = tmp_path / "disambiguation"
-    outputs = NameDisambiguationOutputs(
-        pair_decisions=root / "pairs.csv",
-        clusters=root / "clusters.csv",
-        final_author_selection=root / "selection.csv",
-        final_author_selection_scores=root / "scores.csv",
-        report_txt=root / "report.txt",
-        report_jsonl=root / "report.jsonl",
-    )
+    outputs = NameDisambiguationOutputs(directory=root)
     config = NameDisambiguationConfig(
         matching_output=tmp_path / "matching.csv",
         article_author_file_path=tmp_path / "articles.csv",

@@ -9,10 +9,20 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from acib.constants import (
+    ABSOLUTE_P_TOP_1,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_10,
+    DOMAIN_SHARE_COLUMNS,
+    HAZEN_PERCENTILE,
+    N_PUBLIC,
+    PP_TOP_1,
+    PP_TOP_5,
+    PP_TOP_10,
+)
 from acib.regression.constants import (
     ABSOLUTE_PERFORMANCE_OUTCOMES,
     ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
-    DOMAIN_SHARE_COLUMNS,
     OUTCOME_DISPLAY_LABELS,
 )
 from acib.regression.fields import ASJC_DOMAIN_NAMES
@@ -20,12 +30,12 @@ from acib.regression.model import FittedRegressionModel
 from acib.regression.models import significance_code
 
 RESEARCH_PERFORMANCE_OUTCOMES: tuple[str, ...] = (
-    "hazen_perc_med",
-    "pp_top_10",
-    "pp_top_5",
-    "pp_top_1",
+    HAZEN_PERCENTILE,
+    PP_TOP_10,
+    PP_TOP_5,
+    PP_TOP_1,
 )
-PERCENTAGE_POINT_OUTCOMES: set[str] = {"pp_top_10", "pp_top_5", "pp_top_1"}
+PERCENTAGE_POINT_OUTCOMES: set[str] = {PP_TOP_10, PP_TOP_5, PP_TOP_1}
 TITLE_REFERENCE = "Full Prof."
 TITLE_ORDER: tuple[str, ...] = (
     "Ao. Prof.",
@@ -357,15 +367,15 @@ def model10_without_international_mobility_note(
         tuple(
             outcome_label(outcome, outcome_aliases)
             for outcome in absolute_outcomes
-            if outcome != "n_public"
+            if outcome != N_PUBLIC
         )
     )
-    has_publication_count = "n_public" in absolute_outcomes
-    is_negative_binomial = model_types.get("n_public") == "nb"
+    has_publication_count = N_PUBLIC in absolute_outcomes
+    is_negative_binomial = model_types.get(N_PUBLIC) == "nb"
     other_outcomes_are_ols = all(
         model_types.get(outcome, "ols") == "ols"
         for outcome in (*relative_outcomes, *absolute_outcomes)
-        if outcome != "n_public"
+        if outcome != N_PUBLIC
     )
     if has_publication_count and is_negative_binomial and other_outcomes_are_ols:
         publication_model_note = (
@@ -384,7 +394,7 @@ def model10_without_international_mobility_note(
     percentage_outcomes = [
         outcome for outcome in relative_outcomes if outcome in {"pp_top_10", "pp_top_5", "pp_top_1"}
     ]
-    has_mwpr = "hazen_perc_med" in relative_outcomes
+    has_mwpr = HAZEN_PERCENTILE in relative_outcomes
     percentage_labels = join_labels(
         tuple(outcome_label(outcome, outcome_aliases) for outcome in percentage_outcomes)
     )
@@ -939,8 +949,8 @@ def absolute_performance_note(
     outcome_aliases: Mapping[str, str] | None = None,
 ) -> str:
     notes = []
-    if "n_public" in outcomes:
-        count_model_type = model_types.get("n_public", "ols")
+    if N_PUBLIC in outcomes:
+        count_model_type = model_types.get(N_PUBLIC, "ols")
         if count_model_type == "nb":
             notes.append(
                 "The number of publications is estimated using negative binomial regression "
@@ -965,7 +975,9 @@ def absolute_performance_note(
                 "expressed on the original outcome scale."
             )
     percentile_outcomes = tuple(
-        outcome for outcome in outcomes if outcome in {"P_top10", "P_top5", "P_top1"}
+        outcome
+        for outcome in outcomes
+        if outcome in {ABSOLUTE_P_TOP_10, ABSOLUTE_P_TOP_5, ABSOLUTE_P_TOP_1}
     )
     if percentile_outcomes:
         labels = ", ".join(
@@ -991,17 +1003,17 @@ def relative_performance_note(
     outcome_aliases: Mapping[str, str] | None,
 ) -> str:
     outcome_labels = {outcome: outcome_label(outcome, outcome_aliases) for outcome in outcomes}
-    if "hazen_perc_med" in outcomes:
+    if HAZEN_PERCENTILE in outcomes:
         other_outcomes = [outcome for outcome in outcomes if outcome in PERCENTAGE_POINT_OUTCOMES]
         if other_outcomes:
             labels = join_labels(tuple(outcome_labels[outcome] for outcome in other_outcomes))
             return (
-                f"Coefficients and standard errors for {outcome_labels['hazen_perc_med']} "
+                f"Coefficients and standard errors for {outcome_labels[HAZEN_PERCENTILE]} "
                 f"are reported in percentile points; those for {labels} are reported in "
                 "percentage points. "
             )
         return (
-            f"Coefficients and standard errors for {outcome_labels['hazen_perc_med']} "
+            f"Coefficients and standard errors for {outcome_labels[HAZEN_PERCENTILE]} "
             "are reported in percentile points. "
         )
     percentage_outcomes = [outcome for outcome in outcomes if outcome in PERCENTAGE_POINT_OUTCOMES]
@@ -1258,7 +1270,7 @@ def model_comparison_postamble(
     covariance_types = {
         str(getattr(column.model.fit, "cov_type", "nonrobust")) for column in columns
     }
-    if dependent_variable == "n_public" and model_types == {"nb"}:
+    if dependent_variable == N_PUBLIC and model_types == {"nb"}:
         label = outcome_label(dependent_variable, outcome_aliases)
         outcome_note = f"{label} coefficients are on the log expected-count scale."
     elif dependent_variable in ABSOLUTE_TOP_PERCENTILE_OUTCOMES:
@@ -1266,7 +1278,7 @@ def model_comparison_postamble(
             r"Outcomes are unrounded sums of publication-level fractional top-x\% "
             r"indicators for each professor."
         )
-    elif dependent_variable == "hazen_perc_med":
+    elif dependent_variable == HAZEN_PERCENTILE:
         outcome_note = "Coefficients and standard errors are reported in percentile points."
     else:
         outcome_note = "Coefficients and standard errors are reported in percentage points."

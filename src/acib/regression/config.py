@@ -12,7 +12,24 @@ from typing import Literal, cast
 import pandas as pd
 
 from acib.regression.constants import (
+    AIC_BIC_COMPARISON_FILENAME,
+    AIC_BIC_RANKED_FILENAME,
+    ASJC_FIELD_SHARE_DIAGNOSTICS_FILENAME,
+    AUTHOR_REGRESSION_INPUT_FILENAME,
+    BEST_MODELS_BY_AIC_FILENAME,
+    BEST_MODELS_BY_BIC_FILENAME,
     DEFAULT_REGRESSION_OUTCOME_METADATA,
+    DEPENDENT_VARIABLE_DESCRIPTIVES_FILENAME,
+    INBREEDING_DISCIPLINE_SPEC_COMPARISON_FILENAME,
+    LATEX_DIRECTORY_NAME,
+    MODEL_COEFFICIENTS_FILENAME,
+    MODEL_FIT_STATISTICS_FILENAME,
+    MODEL_FORMULAS_FILENAME,
+    MODEL_SUMMARIES_FILENAME,
+    PLOTS_DIRECTORY_NAME,
+    PROFESSOR_ARTICLE_DIAGNOSTICS_FILENAME,
+    PROFESSOR_ARTICLE_INPUT_FILENAME,
+    REGRESSION_INPUT_DIAGNOSTICS_FILENAME,
 )
 
 RegressionModelType = Literal["ols", "pr", "nb", "zinb"]
@@ -45,44 +62,97 @@ class RegressionModelConfig:
 
 @dataclass(frozen=True, slots=True)
 class RegressionOutputs:
-    """Explicit artifacts produced by regression.
+    """Derive fixed regression artifact paths from their output directory.
 
-    :param regression_input: Researcher-level data consumed by later analyses.
-    :param professor_article_input: Prepared professor/publication records.
-    :param professor_article_diagnostics: Build diagnostics for professor rows.
-    :param asjc_field_share_diagnostics: Field-share construction diagnostics.
-    :param regression_input_diagnostics: Researcher-level input diagnostics.
-    :param model_coefficients: Long-form model coefficient table.
-    :param model_fit_statistics: Fit and convergence statistics.
-    :param dependent_variable_descriptives: Outcome descriptive statistics.
-    :param aic_bic_comparison: Model AIC/BIC table.
-    :param aic_bic_ranked: Ranked AIC/BIC table.
-    :param best_models_by_aic: Best model per outcome by AIC.
-    :param best_models_by_bic: Best model per outcome by BIC.
-    :param inbreeding_discipline_spec_comparison: Inbreeding coefficient comparison.
-    :param model_formulas: Fitted formula text report.
-    :param model_summaries: Fitted model summary text report.
-    :param latex_dir: Collection directory for conditionally generated LaTeX tables.
-    :param plots_dir: Collection directory for conditional regression plots.
+    :param directory: Root directory for all regression-generated artifacts.
     """
 
-    regression_input: Path
-    professor_article_input: Path
-    professor_article_diagnostics: Path
-    asjc_field_share_diagnostics: Path
-    regression_input_diagnostics: Path
-    model_coefficients: Path
-    model_fit_statistics: Path
-    dependent_variable_descriptives: Path
-    aic_bic_comparison: Path
-    aic_bic_ranked: Path
-    best_models_by_aic: Path
-    best_models_by_bic: Path
-    inbreeding_discipline_spec_comparison: Path
-    model_formulas: Path
-    model_summaries: Path
-    latex_dir: Path
-    plots_dir: Path
+    directory: Path
+
+    @property
+    def regression_input(self) -> Path:
+        """Return the researcher-level input consumed by later analyses."""
+        return self.directory / AUTHOR_REGRESSION_INPUT_FILENAME
+
+    @property
+    def professor_article_input(self) -> Path:
+        """Return the prepared professor/publication records path."""
+        return self.directory / PROFESSOR_ARTICLE_INPUT_FILENAME
+
+    @property
+    def professor_article_diagnostics(self) -> Path:
+        """Return the professor/publication build diagnostics path."""
+        return self.directory / PROFESSOR_ARTICLE_DIAGNOSTICS_FILENAME
+
+    @property
+    def asjc_field_share_diagnostics(self) -> Path:
+        """Return the ASJC field-share diagnostics path."""
+        return self.directory / ASJC_FIELD_SHARE_DIAGNOSTICS_FILENAME
+
+    @property
+    def regression_input_diagnostics(self) -> Path:
+        """Return the researcher-level input diagnostics path."""
+        return self.directory / REGRESSION_INPUT_DIAGNOSTICS_FILENAME
+
+    @property
+    def model_coefficients(self) -> Path:
+        """Return the long-form model coefficients path."""
+        return self.directory / MODEL_COEFFICIENTS_FILENAME
+
+    @property
+    def model_fit_statistics(self) -> Path:
+        """Return the model fit and convergence statistics path."""
+        return self.directory / MODEL_FIT_STATISTICS_FILENAME
+
+    @property
+    def dependent_variable_descriptives(self) -> Path:
+        """Return the dependent-variable descriptives path."""
+        return self.directory / DEPENDENT_VARIABLE_DESCRIPTIVES_FILENAME
+
+    @property
+    def aic_bic_comparison(self) -> Path:
+        """Return the AIC/BIC comparison path."""
+        return self.directory / AIC_BIC_COMPARISON_FILENAME
+
+    @property
+    def aic_bic_ranked(self) -> Path:
+        """Return the ranked AIC/BIC comparison path."""
+        return self.directory / AIC_BIC_RANKED_FILENAME
+
+    @property
+    def best_models_by_aic(self) -> Path:
+        """Return the best-models-by-AIC path."""
+        return self.directory / BEST_MODELS_BY_AIC_FILENAME
+
+    @property
+    def best_models_by_bic(self) -> Path:
+        """Return the best-models-by-BIC path."""
+        return self.directory / BEST_MODELS_BY_BIC_FILENAME
+
+    @property
+    def inbreeding_discipline_spec_comparison(self) -> Path:
+        """Return the discipline specification comparison path."""
+        return self.directory / INBREEDING_DISCIPLINE_SPEC_COMPARISON_FILENAME
+
+    @property
+    def model_formulas(self) -> Path:
+        """Return the fitted formula report path."""
+        return self.directory / MODEL_FORMULAS_FILENAME
+
+    @property
+    def model_summaries(self) -> Path:
+        """Return the fitted model summaries path."""
+        return self.directory / MODEL_SUMMARIES_FILENAME
+
+    @property
+    def latex_dir(self) -> Path:
+        """Return the collection directory for generated LaTeX tables."""
+        return self.directory / LATEX_DIRECTORY_NAME
+
+    @property
+    def plots_dir(self) -> Path:
+        """Return the collection directory for regression plots."""
+        return self.directory / PLOTS_DIRECTORY_NAME
 
     def all_paths(self) -> tuple[Path, ...]:
         """Return all configured regression output paths.

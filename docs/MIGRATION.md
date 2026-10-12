@@ -50,7 +50,7 @@ below are retained where they document prior dependency analysis.
 | `mobility` | COMPLETED |
 | `mobility_impact` | EXCLUDED |
 | `regression` | COMPLETED (PHASE 4) |
-| `statistical_matching` | PLANNED |
+| `statistical_matching` | COMPLETED (PHASE 4) |
 
 The approved migration order is `name_matching` → `name_disambiguation` →
 `mobility` → `regression` → `statistical_matching`, one stage per migration.
@@ -300,8 +300,8 @@ established by inspecting implementations.
   labels are retained, and regression can run without the statistical-matching
   section. No statistical-matching code or configuration was migrated.
 - The site-specific `run_regression.sh` Slurm/Apptainer wrapper was not
-  migrated. The Python `analyze_regression.py` and `build_regression_input.py`
-  entry points, `python -m acib.regression`, and the `run-regressions` and
+  migrated. The Python `regression_analysis.py` and `build_regression_input.py`
+  entry points, `python -m acib.regression`, and the `regression-analysis` and
   `build-regression-input` commands are available without cluster-specific
   paths.
 
@@ -366,7 +366,7 @@ established by inspecting implementations.
 - `uv run ruff check .` passed.
 - `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/` passed with no type errors across 79 source files; mypy emitted notices for unrelated unused config sections.
 - `uv run pre-commit run --all-files` passed all applicable hooks, including Flake8, Black, mypy, isort, AST, TOML, and whitespace checks. The two plot modules intentionally select the Agg backend before importing pyplot; `.flake8` scopes their Flake8 E402 exemption, while Ruff passes without unused `noqa` directives.
-- CLI `--help` smoke checks for `python -m acib.regression`, `scripts/analyze_regression.py`, and `scripts/build_regression_input.py` passed. Loading the configured regression settings resolved the mobility proxy, external article/impact paths, outcome groups/aliases, and all explicit outputs. The mobility proxy and external inputs exist; the regression output directory did not exist before implementation checks.
+- CLI `--help` smoke checks for `python -m acib.regression`, `scripts/regression_analysis.py`, and `scripts/build_regression_input.py` passed. Loading the configured regression settings resolved the mobility proxy, external article/impact paths, outcome groups/aliases, and all explicit outputs. The mobility proxy and external inputs exist; the regression output directory did not exist before implementation checks.
 - Path resolution and configured-input existence were checked; output declarations and schemas are implemented, but the regression workflow and model fitting were not run, so end-to-end artifact validity and numerical equivalence remain unverified. Existing artifact presence/schema checks do not establish freshness; stale-artifact detection is not implemented.
 - No regression tests were created, migrated, modified, or run during Phase 2, as required by the approval gate. Phase 4 coverage and verification are recorded below.
 - The original repository remained read-only. No regression workflow or output write was run during Phase 2; production research outputs were not overwritten. No commit was created.
@@ -418,3 +418,111 @@ established by inspecting implementations.
   through the migrated plot classes and configured regression writer instead.
   No full research-dataset regression run was performed during Phase 4; the
   configured research outputs were not overwritten. No commit was created.
+
+## Phase 2 — `statistical_matching` code migration
+
+### Configuration, ownership, and implementation
+
+- Added the independent `acib.statistical_matching` package and direct
+  `load_statistical_matching_config` loader. The sole input resolves through
+  `regression.outputs.regression_input`; selected ordered outcomes are configured
+  under `[statistical_matching].outcomes`, and family/label metadata is derived
+  only from `[regression.outcome_metadata]`. Matching introduces no local input
+  path, aliases/types, or upstream auto-run.
+- Declared nine CSV artifacts and `matching_formulas` individually, plus
+  `latex_dir` and `plots_dir` collection roots. Added
+  `scripts/statistical_matching_analysis.py`, the
+  `statistical-matching-analysis` command, the module entry point, and the
+  canonical-path plot-only utility.
+- The CSV outputs are `balance_summary`, `covariate_balance`,
+  `outcome_effects_long`, `adjusted_outcome_means`, `outcome_effects_wide`,
+  `outcome_standard_errors_wide`, `method_diagnostics`, `propensity_scores`, and
+  `propensity_scores_by_method`. The LaTeX and PNG filenames retain the source
+  names within the configured collections.
+- Input schema validation requires researcher identity and configured treatment,
+  covariates, and outcomes while preserving additional producer columns. Missing
+  regression artifacts identify the regression producer. Presence/schema checks
+  do not establish freshness.
+- Matching reads the producer artifact through regression's existing CSV/Parquet
+  table reader and applies `RegressionInputOutputSchema` before configured-column
+  checks. Each CSV table is validated against a matching-owned Pandera contract
+  before its configured write; dynamic method and diagnostic columns are allowed.
+- Centralized confirmed shared inbreeding, outcome, academic-age/year, and field/
+  domain-share constants in `acib.constants`; regression and matching use those
+  shared definitions directly.
+
+### Behavior and migration gate
+
+- Migrated current-source treatment parsing/preparation, PSM, ATT IPTW, CEM,
+  entropy balancing, population-pooled-SD balance diagnostics, weighted outcome
+  models and configured robust covariance. Preserved PP-only percentage scaling,
+  two-decimal console/LaTeX p-values, relative/absolute LaTeX families, and the
+  conditional absolute-outcome plot. `treated_value` remains inert as in source.
+- The read-only source worktree had pre-existing changes to matching, outcome
+  metadata, family reports, and absolute-outcome plotting when audited. Phase 2
+  used that working-tree behavior as the approved reference; those source files
+  and changes were not edited.
+- Reuse includes regression's producer artifact contract and the lazy formula API
+  helper only; matching does not depend on regression algorithms. The plotting
+  helper consumes canonical configured outputs without duplicating input paths.
+- No matching workflow/model fit against research data was run during Phase 2,
+  and configured research outputs were not written. No tests were created,
+  edited, migrated, or run during Phase 2. Phase 3 static checks were reported
+  before the separate Phase 4 approval; Phase 4 verification is recorded below.
+
+### Phase 4 — statistical-matching tests and verification
+
+- Migrated the source statistical-matching suite, report, balance-diagnostic,
+  workflow-output, and plot assertions into `tests/statistical_matching/` and
+  `tests/integration/test_statistical_matching_workflow.py`. Added tests for
+  canonical input/output path resolution, regression-owned metadata, absence of
+  duplicate local paths/metadata, independent execution without mobility,
+  producer and output contracts, strict balance threshold, zero-variance SMD,
+  PSM tie/input ordering and control exhaustion, and EB's no-feasible-column
+  case. No other stages' tests were changed.
+- Ran the original selected source tests read-only with bytecode and pytest
+  cache disabled through the target uv environment: the original
+  `tests/test_statistical_matching.py`,
+  `tests/test_matching_covariate_balance_plot.py`, and
+  `tests/test_matching_propensity_overlap_plot.py` passed (**16 passed**).
+  The selected matching-dependent-variable test from the original
+  `tests/test_config.py` passed (**1 passed; 6 deselected**). The original
+  repository was not edited.
+- `uv run pytest tests/statistical_matching/` passed: **24 passed**, one
+  `PerfectSeparationWarning` from the PSM no-control-group error-path case.
+  `uv run pytest tests/integration/test_statistical_matching_workflow.py`
+  passed: **7 passed**, no warnings. All integration output paths use temporary
+  directories; no configured research outputs were written.
+- A deterministic synthetic fixture was fitted using the original and target
+  statistical-matching implementations. The source-derived PSM mwPR ATT was
+  `-3.0`, robust standard error `0.2029223250`, and 95% CI
+  `[-3.4002700049, -2.5997299951]`; the target test checks these values with
+  justified tolerances. The fixture also verifies treated/control weight totals
+  and zero maximum SMD across the four methods. This is representative coverage,
+  not a full-data or all-estimator numerical comparison.
+- `uv run ruff check tests/statistical_matching/
+  tests/integration/test_statistical_matching_workflow.py` passed.
+  `uv run --no-project --with mypy mypy --config-file mypy.ini
+  tests/statistical_matching/ tests/integration/test_statistical_matching_workflow.py`
+  passed with no type errors in five test source files; mypy emitted notices
+  about unrelated unused configuration sections. Pre-commit passed for all
+  five changed test files, including Flake8, Black, mypy, and isort.
+- No full configured research-data matching workflow was run and no commit was
+  created. Full-data scientific comparison and numerical comparison of every
+  estimator/outcome remain outside this small-fixture verification.
+
+## Final output-directory configuration refactor
+
+The approved Phase 2 refactor changes every migrated stage to declare a single
+`[stage.outputs].directory`. Fixed filenames remain owned by the producer's
+stage constants and are exposed through output dataclass properties; consumers
+reference those producer properties. Regression and statistical-matching
+LaTeX/plot roots derive as `directory / "latex"` and `directory / "plots"`,
+preserving dynamic filenames. Dependency properties are
+`name_matching.outputs.resolved_researchers`,
+`name_disambiguation.outputs.final_author_selection`,
+`mobility.outputs.author_inbreeding_proxy`, and
+`regression.outputs.regression_input`. Relative paths resolve from the project
+root, absolute paths remain absolute, stages remain independently invoked, and
+stale-artifact detection is not implemented. See `docs/ARCHITECTURE.md` for the
+canonical specification.

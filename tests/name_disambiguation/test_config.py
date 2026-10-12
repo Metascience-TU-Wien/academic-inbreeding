@@ -24,21 +24,14 @@ def write_pipeline_config(path: Path, *, section_options: list[str] | None = Non
                 'article_reference_file_path = "tmp/article_reference.parquet"',
                 "",
                 "[name_matching]",
-                'resolved_matches_output_file_path = "tmp/resolved.csv"',
+                "[name_matching.outputs]",
+                'directory = "tmp/name-matching"',
                 "",
                 "[name_disambiguation]",
                 *options,
                 "",
                 "[name_disambiguation.outputs]",
-                'pair_decisions = "tmp/disambiguation/pair_decisions.csv"',
-                'clusters = "tmp/disambiguation/clusters.csv"',
-                'final_author_selection = "tmp/disambiguation/final_author_selection.csv"',
-                (
-                    "final_author_selection_scores = "
-                    '"tmp/disambiguation/final_author_selection_scores.csv"'
-                ),
-                'report_txt = "tmp/disambiguation/report.txt"',
-                'report_jsonl = "tmp/disambiguation/report.jsonl"',
+                'directory = "tmp/disambiguation"',
             ]
         ),
         encoding="utf-8",
@@ -56,7 +49,7 @@ def test_config_resolves_shared_inputs_and_six_output_paths(tmp_path: Path) -> N
         ],
     )
     config = load_name_disambiguation_config(config_path)
-    assert config.matching_output.name == "resolved.csv"
+    assert config.matching_output.name == "resolved_researchers.csv"
     assert config.article_author_file_path.name == "article_author.csv"
     assert config.article_reference_file_path.name == "article_reference.parquet"
     assert config.enable_reporting is False
@@ -110,7 +103,7 @@ def test_disambiguation_config_rejects_possible_threshold_above_same_threshold(
         load_name_disambiguation_config(config_path)
 
 
-def test_explicit_output_paths_are_resolved_individually(tmp_path: Path) -> None:
+def test_output_directory_is_resolved_and_artifacts_are_derived(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     entries = [
         "[data]",
@@ -120,26 +113,22 @@ def test_explicit_output_paths_are_resolved_individually(tmp_path: Path) -> None
         'article_reference_file_path = "/tmp/references.parquet"',
         "",
         "[name_matching]",
-        'resolved_matches_output_file_path = "/tmp/resolved.csv"',
+        "[name_matching.outputs]",
+        'directory = "/tmp/name-matching"',
         "",
         "[name_disambiguation]",
         "[name_disambiguation.outputs]",
-        f'pair_decisions = "{tmp_path / "pairs.csv"}"',
-        f'clusters = "{tmp_path / "clusters.csv"}"',
-        f'final_author_selection = "{tmp_path / "selection.csv"}"',
-        f'final_author_selection_scores = "{tmp_path / "scores.csv"}"',
-        f'report_txt = "{tmp_path / "report.txt"}"',
-        f'report_jsonl = "{tmp_path / "report.jsonl"}"',
+        f'directory = "{tmp_path / "outputs"}"',
     ]
     config_path.write_text("\n".join(entries), encoding="utf-8")
     config = load_name_disambiguation_config(config_path)
     assert config.outputs.all_paths() == (
-        tmp_path / "pairs.csv",
-        tmp_path / "clusters.csv",
-        tmp_path / "selection.csv",
-        tmp_path / "scores.csv",
-        tmp_path / "report.txt",
-        tmp_path / "report.jsonl",
+        tmp_path / "outputs/pair_decisions.csv",
+        tmp_path / "outputs/clusters.csv",
+        tmp_path / "outputs/final_author_selection.csv",
+        tmp_path / "outputs/final_author_selection_scores.csv",
+        tmp_path / "outputs/report.txt",
+        tmp_path / "outputs/report.jsonl",
     )
 
 
@@ -153,25 +142,21 @@ article_author_file_path = "data/article.csv"
 article_reference_file_path = "data/references.parquet"
 
 [name_matching]
-resolved_matches_output_file_path = "tmp/resolved.csv"
+[name_matching.outputs]
+directory = "tmp/name-matching"
 
 [name_disambiguation.outputs]
-pair_decisions = "tmp/pairs.csv"
-clusters = "tmp/clusters.csv"
-final_author_selection = "tmp/selection.csv"
-final_author_selection_scores = "tmp/scores.csv"
-report_txt = "tmp/report.txt"
-report_jsonl = "tmp/report.jsonl"
+directory = "tmp/disambiguation"
 """,
         encoding="utf-8",
     )
 
     config = load_name_disambiguation_config(config_path)
 
-    assert config.matching_output.name == "resolved.csv"
+    assert config.matching_output.name == "resolved_researchers.csv"
     assert config.article_author_file_path.name == "article.csv"
     assert config.article_reference_file_path.name == "references.parquet"
-    assert config.outputs.pair_decisions.name == "pairs.csv"
+    assert config.outputs.pair_decisions.name == "pair_decisions.csv"
 
 
 def test_disambiguation_config_checks_external_inputs_and_output_overwrite(tmp_path: Path) -> None:
@@ -186,17 +171,13 @@ def test_disambiguation_config_checks_external_inputs_and_output_overwrite(tmp_p
                 f'article_reference_file_path = "{tmp_path / "missing-references.parquet"}"',
                 "",
                 "[name_matching]",
-                'resolved_matches_output_file_path = "/tmp/resolved.csv"',
+                "[name_matching.outputs]",
+                'directory = "/tmp/name-matching"',
                 "",
                 "[name_disambiguation]",
                 "",
                 "[name_disambiguation.outputs]",
-                f'pair_decisions = "{tmp_path / "outputs/pair_decisions.csv"}"',
-                f'clusters = "{tmp_path / "outputs/clusters.csv"}"',
-                f'final_author_selection = "{tmp_path / "outputs/final_author_selection.csv"}"',
-                f'final_author_selection_scores = "{tmp_path / "outputs/scores.csv"}"',
-                f'report_txt = "{tmp_path / "outputs/report.txt"}"',
-                f'report_jsonl = "{tmp_path / "outputs/report.jsonl"}"',
+                f'directory = "{tmp_path / "outputs"}"',
             ]
         ),
         encoding="utf-8",

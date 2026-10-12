@@ -108,7 +108,8 @@ def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Pa
                 f'candidate_authors_file = "{authors_path}"',
                 "",
                 "[name_matching]",
-                'resolved_matches_output_file_path = "results/matches.csv"',
+                "[name_matching.outputs]",
+                'directory = "results"',
             ]
         ),
         encoding="utf-8",
@@ -118,11 +119,41 @@ def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Pa
 
     assert config.researcher_file_path == researcher_path
     assert config.candidate_authors_file == authors_path
-    assert config.resolved_matches_output_file_path == PROJECT_ROOT / "results/matches.csv"
+    assert config.outputs.resolved_researchers == PROJECT_ROOT / "results/resolved_researchers.csv"
     assert config.enable_given_name_aliases is True
     assert config.enable_organisation_filter is True
     assert config.max_workers == 3
     assert config.encoding == "utf-8-sig"
+
+
+def test_name_matching_output_directory_accepts_absolute_path_and_rejects_legacy_file(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "pipeline.toml"
+    config_path.write_text(
+        f"""[data]
+researcher_file_path = "researchers.csv"
+candidate_authors_file = "authors.csv"
+
+[name_matching]
+[name_matching.outputs]
+directory = "{tmp_path / 'absolute-output'}"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_name_matching_config(config_path)
+    assert config.outputs.directory == tmp_path / "absolute-output"
+    assert config.outputs.resolved_researchers == (
+        tmp_path / "absolute-output" / "resolved_researchers.csv"
+    )
+
+    legacy_config = config_path.read_text(encoding="utf-8").replace(
+        "[name_matching]\n", '[name_matching]\nresolved_matches_output_file_path = "old.csv"\n'
+    )
+    config_path.write_text(legacy_config, encoding="utf-8")
+    with pytest.raises(ValueError, match="resolved_matches_output_file_path"):
+        load_name_matching_config(config_path)
 
 
 def test_name_matching_config_rejects_duplicate_stage_input_paths(tmp_path: Path) -> None:
@@ -134,7 +165,9 @@ candidate_authors_file = "/tmp/authors.csv"
 
 [name_matching]
 researcher_file_path = "/tmp/duplicate-researchers.csv"
-resolved_matches_output_file_path = "/tmp/matches.csv"
+
+[name_matching.outputs]
+directory = "/tmp/matches"
 """,
         encoding="utf-8",
     )
@@ -153,11 +186,12 @@ def test_name_matching_config_loads_explicit_scopus_options(tmp_path: Path) -> N
                 f'candidate_authors_file = "{tmp_path / "authors.csv"}"',
                 "",
                 "[name_matching]",
-                f'resolved_matches_output_file_path = "{tmp_path / "matches.csv"}"',
                 "enable_given_name_aliases = false",
                 "enable_organisation_filter = false",
                 "max_workers = 5",
                 'encoding = "utf-8"',
+                "[name_matching.outputs]",
+                f'directory = "{tmp_path / "matches"}"',
             ]
         ),
         encoding="utf-8",
@@ -186,7 +220,8 @@ def test_name_matching_config_rejects_invalid_worker_counts(
                 "",
                 "[name_matching]",
                 f"max_workers = {value}",
-                'resolved_matches_output_file_path = "/tmp/matches.csv"',
+                "[name_matching.outputs]",
+                'directory = "/tmp/matches"',
             ]
         ),
         encoding="utf-8",

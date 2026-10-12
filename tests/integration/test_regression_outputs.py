@@ -21,7 +21,7 @@ from acib.regression.specs import RegressionModelSpec
 from acib.regression.suite import RegressionSuite, RegressionSuiteResult
 from acib.regression.workflow import run_regression_suite
 
-_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "analyze_regression.py"
+_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "regression_analysis.py"
 _SCRIPT_SPEC = importlib.util.spec_from_file_location("target_analyze_regression", _SCRIPT_PATH)
 assert _SCRIPT_SPEC is not None and _SCRIPT_SPEC.loader is not None
 regression_script = importlib.util.module_from_spec(_SCRIPT_SPEC)
@@ -56,25 +56,7 @@ def regression_frame() -> pd.DataFrame:
 
 
 def outputs_under(path: Path) -> RegressionOutputs:
-    return RegressionOutputs(
-        regression_input=path / "regression_input.csv",
-        professor_article_input=path / "professor_article_input.parquet",
-        professor_article_diagnostics=path / "professor_article_diagnostics.csv",
-        asjc_field_share_diagnostics=path / "field_share_diagnostics.csv",
-        regression_input_diagnostics=path / "input_diagnostics.csv",
-        model_coefficients=path / "coefficients.csv",
-        model_fit_statistics=path / "fit_statistics.csv",
-        dependent_variable_descriptives=path / "descriptives.csv",
-        aic_bic_comparison=path / "aic_bic.csv",
-        aic_bic_ranked=path / "aic_bic_ranked.csv",
-        best_models_by_aic=path / "best_aic.csv",
-        best_models_by_bic=path / "best_bic.csv",
-        inbreeding_discipline_spec_comparison=path / "inbreeding_comparison.csv",
-        model_formulas=path / "formulas.txt",
-        model_summaries=path / "summaries.txt",
-        latex_dir=path / "latex",
-        plots_dir=path / "plots",
-    )
+    return RegressionOutputs(directory=path)
 
 
 def pipeline_config(

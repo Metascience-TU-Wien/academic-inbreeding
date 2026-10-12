@@ -16,7 +16,7 @@ def run_pipeline(config_path: str | Path, stage: str = "name_disambiguation") ->
         raise ValueError("Only stage 'name_disambiguation' is supported")
     matching = load_name_matching_config(config_path)
     disambiguation = load_name_disambiguation_config(config_path)
-    upstream = matching.resolved_matches_output_file_path
+    upstream = matching.outputs.resolved_researchers
     if upstream.exists():
         validate_matching_artifact(upstream)
     else:

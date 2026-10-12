@@ -5,8 +5,24 @@
 from __future__ import annotations
 
 from acib.constants import (
+    ABSOLUTE_P_TOP_1,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_10,
+    DOMAIN_SHARE_COLUMNS as _DOMAIN_SHARE_COLUMNS,
     EID,
+    FIELD_SHARE_COLUMNS as _FIELD_SHARE_COLUMNS,
+    FIRST_YEAR,
+    HAZEN_PERCENTILE,
+    IS_INBRED,
+    N_PUBLIC,
+    P_TOP_1,
+    P_TOP_5,
+    P_TOP_10,
     PERSON_TITLE,
+    PP_TOP_1,
+    PP_TOP_5,
+    PP_TOP_10,
+    PRIMARY_FIELD,
     RESEARCHER_ID,
     SUBJECT_AREAS,
     TITLE,
@@ -24,28 +40,59 @@ from acib.name_disambiguation.constants import (
     SELECTED_DISAMBIGUATED_CLUSTER_ID as SELECTED_CLUSTER_ID,
 )
 
+DOMAIN_SHARE_COLUMNS = _DOMAIN_SHARE_COLUMNS
+FIELD_SHARE_COLUMNS = _FIELD_SHARE_COLUMNS
+
+AUTHOR_REGRESSION_INPUT_FILENAME = "author_regression_input.csv"
+PROFESSOR_ARTICLE_INPUT_FILENAME = "professor_article_input.parquet"
+PROFESSOR_ARTICLE_DIAGNOSTICS_FILENAME = "professor_article_diagnostics.csv"
+ASJC_FIELD_SHARE_DIAGNOSTICS_FILENAME = "asjc_field_share_diagnostics.csv"
+REGRESSION_INPUT_DIAGNOSTICS_FILENAME = "regression_input_diagnostics.csv"
+MODEL_COEFFICIENTS_FILENAME = "model_coefficients.csv"
+MODEL_FIT_STATISTICS_FILENAME = "model_fit_statistics.csv"
+DEPENDENT_VARIABLE_DESCRIPTIVES_FILENAME = "dependent_variable_descriptives.csv"
+AIC_BIC_COMPARISON_FILENAME = "aic_bic_comparison.csv"
+AIC_BIC_RANKED_FILENAME = "aic_bic_ranked.csv"
+BEST_MODELS_BY_AIC_FILENAME = "best_models_by_aic.csv"
+BEST_MODELS_BY_BIC_FILENAME = "best_models_by_bic.csv"
+INBREEDING_DISCIPLINE_SPEC_COMPARISON_FILENAME = "inbreeding_discipline_spec_comparison.csv"
+MODEL_FORMULAS_FILENAME = "model_formulas.txt"
+MODEL_SUMMARIES_FILENAME = "model_summaries.txt"
+LATEX_DIRECTORY_NAME = "latex"
+PLOTS_DIRECTORY_NAME = "plots"
+
 PAPER_REGRESSION_DEPENDENT_VARIABLES: tuple[str, ...] = (
-    "hazen_perc_med",
-    "pp_top_10",
-    "pp_top_5",
-    "pp_top_1",
-    "P_top10",
-    "P_top5",
-    "P_top1",
+    HAZEN_PERCENTILE,
+    PP_TOP_10,
+    PP_TOP_5,
+    PP_TOP_1,
+    ABSOLUTE_P_TOP_10,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_1,
 )
 DEFAULT_REGRESSION_DEPENDENT_VARIABLES = PAPER_REGRESSION_DEPENDENT_VARIABLES
-ABSOLUTE_TOP_PERCENTILE_OUTCOMES: tuple[str, ...] = ("P_top10", "P_top5", "P_top1")
-ABSOLUTE_PERFORMANCE_OUTCOMES: tuple[str, ...] = ("n_public", *ABSOLUTE_TOP_PERCENTILE_OUTCOMES)
+RELATIVE_PERFORMANCE_OUTCOMES: tuple[str, ...] = (
+    HAZEN_PERCENTILE,
+    PP_TOP_10,
+    PP_TOP_5,
+    PP_TOP_1,
+)
+ABSOLUTE_TOP_PERCENTILE_OUTCOMES: tuple[str, ...] = (
+    ABSOLUTE_P_TOP_10,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_1,
+)
+ABSOLUTE_PERFORMANCE_OUTCOMES: tuple[str, ...] = (N_PUBLIC, *ABSOLUTE_TOP_PERCENTILE_OUTCOMES)
 
 DEFAULT_REGRESSION_OUTCOME_METADATA: dict[str, tuple[str, str]] = {
-    "hazen_perc_med": ("relative", "mwPR"),
-    "pp_top_10": ("relative", r"PP(top 10\%)"),
-    "pp_top_5": ("relative", r"PP(top 5\%)"),
-    "pp_top_1": ("relative", r"PP(top 1\%)"),
-    "n_public": ("absolute", "Publications"),
-    "P_top10": ("absolute", r"P(top 10\%)"),
-    "P_top5": ("absolute", r"P(top 5\%)"),
-    "P_top1": ("absolute", r"P(top 1\%)"),
+    HAZEN_PERCENTILE: ("relative", "mwPR"),
+    PP_TOP_10: ("relative", r"PP(top 10\%)"),
+    PP_TOP_5: ("relative", r"PP(top 5\%)"),
+    PP_TOP_1: ("relative", r"PP(top 1\%)"),
+    N_PUBLIC: ("absolute", "Publications"),
+    ABSOLUTE_P_TOP_10: ("absolute", r"P(top 10\%)"),
+    ABSOLUTE_P_TOP_5: ("absolute", r"P(top 5\%)"),
+    ABSOLUTE_P_TOP_1: ("absolute", r"P(top 1\%)"),
 }
 OUTCOME_DISPLAY_LABELS: dict[str, str] = {
     outcome: alias for outcome, (_, alias) in DEFAULT_REGRESSION_OUTCOME_METADATA.items()
@@ -133,16 +180,11 @@ PAPER_REGRESSION_MODEL_TERMS: dict[str, tuple[str, ...]] = {
 REGRESSION_TITLE_EXCLUSIONS: tuple[str, ...] = ()
 
 # Regression-specific fields and preserved input/output projections.
-IS_INBRED = "is_inbred"
-N_PUBLIC = "n_public"
 N_PUBLIC_IMPACT = "n_public_impact"
-ACADEMIC_AGE = "academic_age"
 PUBLICATION_RATE = "publication_rate"
 LOG_PUBLICATION_RATE = "log_publication_rate"
 LOG_N_PUBLIC = "log_n_public"
 LOG_N_AFFILIATIONS = "log_n_affiliations"
-FIRST_YEAR = "first_year"
-PRIMARY_FIELD = "primary_field"
 PRIMARY_FIELD_SHARE = "primary_field_share"
 PUBLIC_PROD = "public_prod"
 PUBLIC_PROD_IMPACT = "public_prod_impact"
@@ -151,16 +193,9 @@ CLASS_NAME = "class_name"
 PUBYEAR = "pubyear"
 CITED_BY_COUNT = "citedby_count"
 IMPACT_ASJC_FIELD_COLUMN = "impact_asjc_subject_area"
-HAZEN_PERCENTILE = "hazen_perc_med"
-PP_TOP_1 = "pp_top_1"
-PP_TOP_5 = "pp_top_5"
-PP_TOP_10 = "pp_top_10"
 LEIDEN_P_TOP_1 = "leiden_p_top_1"
 LEIDEN_P_TOP_5 = "leiden_p_top_5"
 LEIDEN_P_TOP_10 = "leiden_p_top_10"
-P_TOP_1 = "p_top_1"
-P_TOP_5 = "p_top_5"
-P_TOP_10 = "p_top_10"
 PTOP_1_FRACTION = "ptop1_frac"
 PTOP_5_FRACTION = "ptop5_frac"
 PTOP_10_FRACTION = "ptop10_frac"
@@ -168,43 +203,6 @@ DI1 = "di1"
 DI5 = "di5"
 ARTICLE_IMPACT_ID = "item_id"
 FOCAL_EID = "focal_eid"
-FIELD_SHARE_COLUMNS: tuple[str, ...] = (
-    "multi_share",
-    "agri_bio_share",
-    "arts_hum_share",
-    "biochem_share",
-    "business_share",
-    "chem_eng_share",
-    "chem_share",
-    "comp_sci_share",
-    "decision_share",
-    "earth_share",
-    "econ_share",
-    "energy_share",
-    "eng_share",
-    "env_sci_share",
-    "immuno_share",
-    "materials_share",
-    "math_share",
-    "med_share",
-    "neuro_share",
-    "nursing_share",
-    "pharma_share",
-    "physics_share",
-    "psych_share",
-    "soc_sci_share",
-    "vet_share",
-    "dentistry_share",
-    "health_share",
-)
-DOMAIN_SHARE_COLUMNS: tuple[str, ...] = (
-    "life_sci_share",
-    "health_sci_share",
-    "phys_sci_share",
-    "soc_hum_share",
-    "multi_area_share",
-)
-
 AUTHOR_ARTICLE_COLUMNS = (
     EID,
     DOI,

@@ -89,12 +89,7 @@ def test_mobility_runs_independently_and_writes_only_configured_artifacts(
     monkeypatch.setattr("acib.mobility.workflow._read_geodataframe", lambda _path: affiliations)
 
     output_dir = tmp_path / "mobility-output"
-    outputs = MobilityOutputs(
-        author_affiliations=output_dir / "author_affiliations.csv",
-        author_affiliations_unique=output_dir / "author_affiliations_unique.csv",
-        author_inbreeding_proxy=output_dir / "author_inbreeding_proxy.csv",
-        author_articles=output_dir / "author_articles.csv",
-    )
+    outputs = MobilityOutputs(directory=output_dir)
     config = MobilityConfig(
         authors=author_path,
         researcher_metadata=metadata_path,

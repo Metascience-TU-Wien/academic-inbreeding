@@ -1014,12 +1014,7 @@ def test_write_inbreeding_outputs_writes_unique_author_articles(tmp_path: Path) 
         author_articles=pd.DataFrame({"eid": ["paper"], "doi": ["10/example"]}),
     )
 
-    outputs = MobilityOutputs(
-        author_affiliations=tmp_path / "author_affiliations.csv",
-        author_affiliations_unique=tmp_path / "author_affiliations_unique.csv",
-        author_inbreeding_proxy=tmp_path / "author_inbreeding_proxy.csv",
-        author_articles=tmp_path / "author_articles.csv",
-    )
+    outputs = MobilityOutputs(directory=tmp_path)
     write_inbreeding_outputs(result=result, outputs=outputs)
 
     articles = pd.read_csv(tmp_path / "author_articles.csv")

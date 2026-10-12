@@ -8,7 +8,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-HAZEN_PERCENTILE_COLUMN = "hazen_perc_med"
+from acib.constants import HAZEN_PERCENTILE
+
+HAZEN_PERCENTILE_COLUMN = HAZEN_PERCENTILE
 MWPR_COLUMN = "mwpr"
 _WEIGHT_COLUMN = "_mwpr_weight"
 _WEIGHTED_VALUE_COLUMN = "_mwpr_weighted_value"
