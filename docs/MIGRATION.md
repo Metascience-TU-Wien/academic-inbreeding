@@ -50,7 +50,7 @@ below are retained where they document prior dependency analysis.
 | `mobility` | COMPLETED |
 | `mobility_impact` | EXCLUDED |
 | `regression` | COMPLETED (PHASE 4) |
-| `statistical_matching` | PHASE 2 CODE MIGRATION COMPLETE; TEST MIGRATION GATED |
+| `statistical_matching` | COMPLETED (PHASE 4) |
 
 The approved migration order is `name_matching` → `name_disambiguation` →
 `mobility` → `regression` → `statistical_matching`, one stage per migration.
@@ -463,7 +463,48 @@ established by inspecting implementations.
 - Reuse includes regression's producer artifact contract and the lazy formula API
   helper only; matching does not depend on regression algorithms. The plotting
   helper consumes canonical configured outputs without duplicating input paths.
-- No matching workflow/model fit against research data was run, and configured
-  research outputs were not written. No tests were created, edited, migrated, or
-  run. Phase 3 static checks are reported in the code-migration completion
-  response; test migration remains separately gated and awaits explicit approval.
+- No matching workflow/model fit against research data was run during Phase 2,
+  and configured research outputs were not written. No tests were created,
+  edited, migrated, or run during Phase 2. Phase 3 static checks were reported
+  before the separate Phase 4 approval; Phase 4 verification is recorded below.
+
+### Phase 4 — statistical-matching tests and verification
+
+- Migrated the source statistical-matching suite, report, balance-diagnostic,
+  workflow-output, and plot assertions into `tests/statistical_matching/` and
+  `tests/integration/test_statistical_matching_workflow.py`. Added tests for
+  canonical input/output path resolution, regression-owned metadata, absence of
+  duplicate local paths/metadata, independent execution without mobility,
+  producer and output contracts, strict balance threshold, zero-variance SMD,
+  PSM tie/input ordering and control exhaustion, and EB's no-feasible-column
+  case. No other stages' tests were changed.
+- Ran the original selected source tests read-only with bytecode and pytest
+  cache disabled through the target uv environment: the original
+  `tests/test_statistical_matching.py`,
+  `tests/test_matching_covariate_balance_plot.py`, and
+  `tests/test_matching_propensity_overlap_plot.py` passed (**16 passed**).
+  The selected matching-dependent-variable test from the original
+  `tests/test_config.py` passed (**1 passed; 6 deselected**). The original
+  repository was not edited.
+- `uv run pytest tests/statistical_matching/` passed: **24 passed**, one
+  `PerfectSeparationWarning` from the PSM no-control-group error-path case.
+  `uv run pytest tests/integration/test_statistical_matching_workflow.py`
+  passed: **7 passed**, no warnings. All integration output paths use temporary
+  directories; no configured research outputs were written.
+- A deterministic synthetic fixture was fitted using the original and target
+  statistical-matching implementations. The source-derived PSM mwPR ATT was
+  `-3.0`, robust standard error `0.2029223250`, and 95% CI
+  `[-3.4002700049, -2.5997299951]`; the target test checks these values with
+  justified tolerances. The fixture also verifies treated/control weight totals
+  and zero maximum SMD across the four methods. This is representative coverage,
+  not a full-data or all-estimator numerical comparison.
+- `uv run ruff check tests/statistical_matching/
+  tests/integration/test_statistical_matching_workflow.py` passed.
+  `uv run --no-project --with mypy mypy --config-file mypy.ini
+  tests/statistical_matching/ tests/integration/test_statistical_matching_workflow.py`
+  passed with no type errors in five test source files; mypy emitted notices
+  about unrelated unused configuration sections. Pre-commit passed for all
+  five changed test files, including Flake8, Black, mypy, and isort.
+- No full configured research-data matching workflow was run and no commit was
+  created. Full-data scientific comparison and numerical comparison of every
+  estimator/outcome remain outside this small-fixture verification.
