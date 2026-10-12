@@ -21,7 +21,7 @@ from acib.regression.specs import RegressionModelSpec
 from acib.regression.suite import RegressionSuite, RegressionSuiteResult
 from acib.regression.workflow import run_regression_suite
 
-_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "analyze_regression.py"
+_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "regression_analysis.py"
 _SCRIPT_SPEC = importlib.util.spec_from_file_location("target_analyze_regression", _SCRIPT_PATH)
 assert _SCRIPT_SPEC is not None and _SCRIPT_SPEC.loader is not None
 regression_script = importlib.util.module_from_spec(_SCRIPT_SPEC)
