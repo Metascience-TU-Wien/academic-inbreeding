@@ -49,7 +49,7 @@ below are retained where they document prior dependency analysis.
 | `name_disambiguation` | COMPLETED |
 | `mobility` | COMPLETED |
 | `mobility_impact` | EXCLUDED |
-| `regression` | PHASE 3 REPORT; PHASE 4 AWAITS APPROVAL |
+| `regression` | COMPLETED (PHASE 4) |
 | `statistical_matching` | PLANNED |
 
 The approved migration order is `name_matching` → `name_disambiguation` →
@@ -368,5 +368,53 @@ established by inspecting implementations.
 - `uv run pre-commit run --all-files` passed all applicable hooks, including Flake8, Black, mypy, isort, AST, TOML, and whitespace checks. The two plot modules intentionally select the Agg backend before importing pyplot; `.flake8` scopes their Flake8 E402 exemption, while Ruff passes without unused `noqa` directives.
 - CLI `--help` smoke checks for `python -m acib.regression`, `scripts/analyze_regression.py`, and `scripts/build_regression_input.py` passed. Loading the configured regression settings resolved the mobility proxy, external article/impact paths, outcome groups/aliases, and all explicit outputs. The mobility proxy and external inputs exist; the regression output directory did not exist before implementation checks.
 - Path resolution and configured-input existence were checked; output declarations and schemas are implemented, but the regression workflow and model fitting were not run, so end-to-end artifact validity and numerical equivalence remain unverified. Existing artifact presence/schema checks do not establish freshness; stale-artifact detection is not implemented.
-- No regression tests were created, migrated, modified, or run in Phase 2, as required by the approval gate. The 42 core regression tests, builder serialization test, seven Model 9 plot tests, and four professor-violin plot tests remain to be migrated only after explicit Phase 4 approval. No regression scientific-regression comparison has been performed.
-- The original repository remains read-only. No regression workflow, input builder, model fit, or output write was run; production research outputs were not overwritten. No commit was created.
+- No regression tests were created, migrated, modified, or run during Phase 2, as required by the approval gate. Phase 4 coverage and verification are recorded below.
+- The original repository remained read-only. No regression workflow or output write was run during Phase 2; production research outputs were not overwritten. No commit was created.
+
+### Phase 4 — regression test migration and verification
+
+- Migrated regression input aggregation, article/impact joins, professor article
+  construction, ASJC label and field-share rules, model specifications and
+  families, MLE diagnostics, model reporting, and plot behavior into
+  `tests/regression/`. Added temporary-path integration tests for configured
+  input building/reuse, LaTeX outputs, CLI/workflow flags, and regression
+  artifacts. No tests for other stages were added or modified.
+- Added canonical-configuration tests using a temporary TOML file: relative
+  generated paths resolve from the target project root, external absolute paths
+  remain absolute, and regression configuration loads without statistical-
+  matching or mobility-impact sections. The regression input contract rejects
+  duplicate researcher IDs and non-boolean inbreeding status values. Workflow
+  reuse tests use missing upstream/external paths and verify regression can use
+  its own configured input without executing mobility.
+- Added coverage for the approved Model 9 plot fix: the fixture fits the four
+  configured OLS plot outcomes plus an unrelated Negative Binomial `n_public`
+  Model 9; writing to a temporary output directory produces
+  `plots/model9_inbreeding_predictions.png` and the professor violin plot.
+- Ran the original regression tests read-only with bytecode and pytest cache
+  disabled using the target uv environment and `PYTHONPATH` set to the original
+  source. `tests/test_regression.py`: **45 passed** (including parametrized
+  cases). Original `tests/test_build_regression_input_script.py`,
+  `tests/test_model9_inbreeding_prediction_plot.py`, and
+  `tests/test_professor_violin.py`: **12 passed**. The source files were not
+  edited.
+- `uv run pytest tests/regression/` passed: **60 passed**, 3 statsmodels
+  warnings (Poisson BIC deprecation and two ZINB numerical warnings).
+  `uv run pytest tests/integration/` passed: **14 passed**, 5 pandas
+  `FutureWarning`s from existing mobility/name-matching integration tests.
+- A deterministic eight-row OLS fixture was fitted separately by the original
+  and migrated implementations. Coefficients (`Intercept = -0.125`, inbreeding
+  effect `0.75`, age effect `1.05`), R-squared (`0.9436893203883495`), AIC,
+  BIC, observation count, and formula matched; the target assertion uses tight
+  numeric tolerances. This is a representative model regression comparison,
+  not a full-dataset comparison.
+- `uv run ruff check tests/regression/ tests/integration/` passed.
+  `uv run --no-project --with mypy mypy --config-file mypy.ini
+  tests/regression/ tests/integration/` passed with no type errors in 8 test
+  source files; mypy noted unrelated unused config sections. Pre-commit passed
+  for all five changed regression test files, including Flake8, Black, mypy,
+  and isort.
+- Plot-specific legacy helper-script functions do not exist in the target
+  package. Their input/configuration and file-output behaviors are exercised
+  through the migrated plot classes and configured regression writer instead.
+  No full research-dataset regression run was performed during Phase 4; the
+  configured research outputs were not overwritten. No commit was created.
