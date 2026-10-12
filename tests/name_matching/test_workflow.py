@@ -103,9 +103,11 @@ def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Pa
     config_path.write_text(
         "\n".join(
             [
-                "[name_matching]",
+                "[data]",
                 f'researcher_file_path = "{researcher_path}"',
                 f'candidate_authors_file = "{authors_path}"',
+                "",
+                "[name_matching]",
                 'resolved_matches_output_file_path = "results/matches.csv"',
             ]
         ),
@@ -123,14 +125,34 @@ def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Pa
     assert config.encoding == "utf-8-sig"
 
 
+def test_name_matching_config_rejects_duplicate_stage_input_paths(tmp_path: Path) -> None:
+    config_path = tmp_path / "pipeline.toml"
+    config_path.write_text(
+        """[data]
+researcher_file_path = "/tmp/researchers.csv"
+candidate_authors_file = "/tmp/authors.csv"
+
+[name_matching]
+researcher_file_path = "/tmp/duplicate-researchers.csv"
+resolved_matches_output_file_path = "/tmp/matches.csv"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must not duplicate"):
+        load_name_matching_config(config_path)
+
+
 def test_name_matching_config_loads_explicit_scopus_options(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     config_path.write_text(
         "\n".join(
             [
-                "[name_matching]",
+                "[data]",
                 f'researcher_file_path = "{tmp_path / "researchers.csv"}"',
                 f'candidate_authors_file = "{tmp_path / "authors.csv"}"',
+                "",
+                "[name_matching]",
                 f'resolved_matches_output_file_path = "{tmp_path / "matches.csv"}"',
                 "enable_given_name_aliases = false",
                 "enable_organisation_filter = false",
@@ -158,10 +180,12 @@ def test_name_matching_config_rejects_invalid_worker_counts(
     config_path.write_text(
         "\n".join(
             [
-                "[name_matching]",
-                f"max_workers = {value}",
+                "[data]",
                 'researcher_file_path = "/tmp/researchers.csv"',
                 'candidate_authors_file = "/tmp/authors.csv"',
+                "",
+                "[name_matching]",
+                f"max_workers = {value}",
                 'resolved_matches_output_file_path = "/tmp/matches.csv"',
             ]
         ),

@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import math
+from numbers import Integral
+from typing import Any
 
 import pandas as pd
 import pandera.pandas as pa
@@ -88,19 +90,22 @@ class ResearcherInputSchema(pa.DataFrameModel):
 
 
 class ResearcherDisambiguationSelectionSchema(pa.DataFrameModel):
-    """Validate the final disambiguation selection row per researcher."""
+    """Validate final disambiguation rows without coercing identifier values.
 
-    sc_id: Series[str] = pa.Field(alias=RESEARCHER_ID, nullable=False, unique=True)
+    The CSV boundary may infer Scopus researcher IDs as integers or floats with
+    missing values; exact integral representations and digit-only strings are
+    accepted and retained as supplied.
+    """
+
+    sc_id: Series[Any] = pa.Field(alias=RESEARCHER_ID, nullable=False, unique=True)
     status: Series[str] = pa.Field(
         alias=SELECTION_STATUS,
         nullable=False,
         isin=sorted(FINAL_SELECTION_STATUS_VALUES),
     )
-    selected_cluster_id: Series[pd.Int64Dtype] | None = pa.Field(
-        alias=SELECTED_CLUSTER_ID, nullable=True, coerce=True
-    )
-    selected_disambiguated_cluster_id: Series[str] = pa.Field(
-        alias=SELECTED_DISAMBIGUATED_CLUSTER_ID, nullable=False
+    selected_cluster_id: Series[Any] | None = pa.Field(alias=SELECTED_CLUSTER_ID, nullable=True)
+    selected_disambiguated_cluster_id: Series[Any] = pa.Field(
+        alias=SELECTED_DISAMBIGUATED_CLUSTER_ID, nullable=True
     )
     selected_author_ids: Series[object] = pa.Field(alias=SELECTED_AUTHOR_IDS, nullable=False)
     possible_clusters: Series[object] = pa.Field(alias=POSSIBLE_CLUSTERS, nullable=False)
@@ -119,8 +124,43 @@ class ResearcherDisambiguationSelectionSchema(pa.DataFrameModel):
         alias=CURRENT_AFFILIATION_IDS, nullable=True
     )
 
+    @pa.check(RESEARCHER_ID)
+    @classmethod
+    def researcher_ids_are_integral(cls, values: pd.Series) -> pd.Series:
+        """Reject malformed researcher identifiers without changing their dtype.
+
+        :param values: Researcher identifiers from the selection artifact.
+        :return: Row-wise identifier validity mask.
+        """
+        return values.map(_is_valid_identifier)
+
+    @pa.check(SELECTED_DISAMBIGUATED_CLUSTER_ID)
+    @classmethod
+    def selected_author_ids_are_integral(cls, values: pd.Series) -> pd.Series:
+        """Allow missing selected IDs but reject fractional or malformed values.
+
+        :param values: Selected Scopus author identifiers.
+        :return: Row-wise identifier validity mask.
+        """
+        return values.map(lambda value: pd.isna(value) or _is_valid_identifier(value))
+
     class Config:
         """Retain output enrichments not required by the core selection contract."""
 
         strict = False
         coerce = False
+
+
+def _is_valid_identifier(value: Any) -> bool:
+    """Check that an identifier is a nonnegative integral scalar or digit string.
+
+    :param value: Identifier value to inspect.
+    :return: Whether the value is an exact integral identifier.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, Integral):
+        return int(value) >= 0
+    if isinstance(value, float):
+        return math.isfinite(value) and value.is_integer() and value >= 0
+    return isinstance(value, str) and value.strip().isdigit()
