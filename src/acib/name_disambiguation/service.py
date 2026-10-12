@@ -15,14 +15,12 @@ from acib.common.names import given_tokens, split_name
 from acib.constants import (
     AFFILIATION_ID_CURRENT,
     AFFILIATION_IDS_CURRENT,
-)
-from acib.constants import AUTHOR_ID as AUTHOR_SCOPUS_ID_COLUMN
-from acib.constants import EID as EID_COLUMN
-from acib.constants import (
+    AUTHOR_ID as AUTHOR_SCOPUS_ID_COLUMN,
+    EID as EID_COLUMN,
     INFERRED_ASJC_CODES,
+    RESEARCHER_ID as RESEARCHER_ID_COLUMN_NAME,
+    UNIVERSITY_NAME as UNIVERSITY_NAME_COLUMN,
 )
-from acib.constants import RESEARCHER_ID as RESEARCHER_ID_COLUMN_NAME
-from acib.constants import UNIVERSITY_NAME as UNIVERSITY_NAME_COLUMN
 from acib.name_disambiguation.constants import (
     ARTICLE_PARENT_SUBJECT_CODES,
     ARTICLE_PARENT_SUBJECT_COVERAGE,

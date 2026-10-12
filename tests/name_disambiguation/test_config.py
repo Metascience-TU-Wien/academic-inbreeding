@@ -7,8 +7,8 @@ import pytest
 from acib.pipeline.config import load_name_disambiguation_config
 
 
-def write_legacy_config(path: Path, *, section_options: list[str] | None = None) -> None:
-    """Write a legacy-style pipeline configuration for loader tests.
+def write_pipeline_config(path: Path, *, section_options: list[str] | None = None) -> None:
+    """Write a dependency-aware pipeline configuration for loader tests.
 
     :param path: Temporary TOML destination.
     :param section_options: Optional extra disambiguation settings.
@@ -17,26 +17,37 @@ def write_legacy_config(path: Path, *, section_options: list[str] | None = None)
     path.write_text(
         "\n".join(
             [
-                "[name_matching]",
+                "[data]",
                 'researcher_file_path = "data/researchers.csv"',
                 'candidate_authors_file = "data/authors.csv"',
+                'article_author_file_path = "tmp/article_author.csv"',
+                'article_reference_file_path = "tmp/article_reference.parquet"',
+                "",
+                "[name_matching]",
                 'resolved_matches_output_file_path = "tmp/resolved.csv"',
                 "",
                 "[name_disambiguation]",
-                'author_file_path = "tmp/resolved.csv"',
-                'article_author_file_path = "tmp/article_author.csv"',
-                'article_reference_file_path = "tmp/article_reference.parquet"',
-                'disambiguated_author_path = "tmp/disambiguation"',
                 *options,
+                "",
+                "[name_disambiguation.outputs]",
+                'pair_decisions = "tmp/disambiguation/pair_decisions.csv"',
+                'clusters = "tmp/disambiguation/clusters.csv"',
+                'final_author_selection = "tmp/disambiguation/final_author_selection.csv"',
+                (
+                    "final_author_selection_scores = "
+                    '"tmp/disambiguation/final_author_selection_scores.csv"'
+                ),
+                'report_txt = "tmp/disambiguation/report.txt"',
+                'report_jsonl = "tmp/disambiguation/report.jsonl"',
             ]
         ),
         encoding="utf-8",
     )
 
 
-def test_legacy_config_resolves_inputs_and_six_output_paths(tmp_path: Path) -> None:
+def test_config_resolves_shared_inputs_and_six_output_paths(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
-    write_legacy_config(
+    write_pipeline_config(
         config_path,
         section_options=[
             "enable_reporting = false",
@@ -63,7 +74,7 @@ def test_legacy_config_resolves_inputs_and_six_output_paths(tmp_path: Path) -> N
 
 def test_disambiguation_config_preserves_defaults(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
-    write_legacy_config(config_path)
+    write_pipeline_config(config_path)
     config = load_name_disambiguation_config(config_path)
     assert config.enable_reporting is True
     assert config.same_author_score_threshold == 6.0
@@ -71,11 +82,24 @@ def test_disambiguation_config_preserves_defaults(tmp_path: Path) -> None:
     assert config.max_workers == 1
 
 
+def test_disambiguation_config_rejects_duplicate_upstream_and_external_paths(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "pipeline.toml"
+    write_pipeline_config(
+        config_path,
+        section_options=['author_file_path = "tmp/duplicate-matches.csv"'],
+    )
+
+    with pytest.raises(ValueError, match="must not duplicate"):
+        load_name_disambiguation_config(config_path)
+
+
 def test_disambiguation_config_rejects_possible_threshold_above_same_threshold(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "pipeline.toml"
-    write_legacy_config(
+    write_pipeline_config(
         config_path,
         section_options=[
             "same_author_score_threshold = 2.0",
@@ -89,14 +113,16 @@ def test_disambiguation_config_rejects_possible_threshold_above_same_threshold(
 def test_explicit_output_paths_are_resolved_individually(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     entries = [
-        "[name_matching]",
+        "[data]",
         'researcher_file_path = "/tmp/researchers.csv"',
         'candidate_authors_file = "/tmp/authors.csv"',
+        'article_author_file_path = "/tmp/articles.csv"',
+        'article_reference_file_path = "/tmp/references.parquet"',
+        "",
+        "[name_matching]",
         'resolved_matches_output_file_path = "/tmp/resolved.csv"',
         "",
         "[name_disambiguation]",
-        'article_author_file_path = "/tmp/articles.csv"',
-        'article_reference_file_path = "/tmp/references.parquet"',
         "[name_disambiguation.outputs]",
         f'pair_decisions = "{tmp_path / "pairs.csv"}"',
         f'clusters = "{tmp_path / "clusters.csv"}"',
@@ -153,15 +179,24 @@ def test_disambiguation_config_checks_external_inputs_and_output_overwrite(tmp_p
     config_path.write_text(
         "\n".join(
             [
-                "[name_matching]",
+                "[data]",
                 'researcher_file_path = "/tmp/researchers.csv"',
                 'candidate_authors_file = "/tmp/authors.csv"',
+                f'article_author_file_path = "{tmp_path / "missing-articles.csv"}"',
+                f'article_reference_file_path = "{tmp_path / "missing-references.parquet"}"',
+                "",
+                "[name_matching]",
                 'resolved_matches_output_file_path = "/tmp/resolved.csv"',
                 "",
                 "[name_disambiguation]",
-                f'article_author_file_path = "{tmp_path / "missing-articles.csv"}"',
-                f'article_reference_file_path = "{tmp_path / "missing-references.parquet"}"',
-                f'disambiguated_author_path = "{tmp_path / "outputs"}"',
+                "",
+                "[name_disambiguation.outputs]",
+                f'pair_decisions = "{tmp_path / "outputs/pair_decisions.csv"}"',
+                f'clusters = "{tmp_path / "outputs/clusters.csv"}"',
+                f'final_author_selection = "{tmp_path / "outputs/final_author_selection.csv"}"',
+                f'final_author_selection_scores = "{tmp_path / "outputs/scores.csv"}"',
+                f'report_txt = "{tmp_path / "outputs/report.txt"}"',
+                f'report_jsonl = "{tmp_path / "outputs/report.jsonl"}"',
             ]
         ),
         encoding="utf-8",
@@ -183,6 +218,6 @@ def test_disambiguation_config_rejects_invalid_worker_count(
 ) -> None:
     config_path = tmp_path / "pipeline.toml"
     value = str(workers).lower() if isinstance(workers, bool) else str(workers)
-    write_legacy_config(config_path, section_options=[f"max_workers = {value}"])
+    write_pipeline_config(config_path, section_options=[f"max_workers = {value}"])
     with pytest.raises((ValueError, TypeError), match="max_workers"):
         load_name_disambiguation_config(config_path)

@@ -44,6 +44,7 @@ dependencies = [
 [project.scripts]
 match-author-names = "acib.name_matching.cli:main"
 disambiguate-author-names = "acib.name_disambiguation.cli:main"
+run-academic-inbreeding = "acib.mobility.cli:main"
 run-acib-pipeline = "acib.pipeline.cli:main"
 
 [build-system]
@@ -52,3 +53,10 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "acib"
+
+[tool.isort]
+profile = "black"
+combine_as_imports = true
+
+[tool.ruff.lint.isort]
+combine-as-imports = true

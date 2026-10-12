@@ -10,25 +10,19 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from acib.constants import AUTHOR_ID as AUTHOR_SCOPUS_ID_COLUMN
-from acib.constants import EID as EID_COLUMN
-from acib.constants import GIVEN_NAME
-from acib.constants import SUBJECT_AREAS as SUBJECT_AREA_COLUMN
+from acib.constants import (
+    AUTHOR_ID as AUTHOR_SCOPUS_ID_COLUMN,
+    EID as EID_COLUMN,
+    GIVEN_NAME,
+    SUBJECT_AREAS as SUBJECT_AREA_COLUMN,
+)
 from acib.name_disambiguation.constants import (
     ARTICLE_AFFILIATION_CITY as ARTICLE_AFFILIATION_CITY_COLUMN,
-)
-from acib.name_disambiguation.constants import (
     ARTICLE_AUTHOR_NAMES,
-)
-from acib.name_disambiguation.constants import ARTICLE_CITY as CITY_COLUMN
-from acib.name_disambiguation.constants import ARTICLE_COUNTRY as COUNTRY_COLUMN
-from acib.name_disambiguation.constants import (
+    ARTICLE_CITY as CITY_COLUMN,
+    ARTICLE_COUNTRY as COUNTRY_COLUMN,
     ARTICLE_COUNTRY_CODE,
-)
-from acib.name_disambiguation.constants import (
     ARTICLE_FUND_NUMBER as ARTICLE_FUND_NO_COLUMN,
-)
-from acib.name_disambiguation.constants import (
     ARTICLE_GRANT_ID,
     ARTICLE_GRANT_NUMBER,
     ARTICLE_GRANT_NUMBERS,
@@ -38,14 +32,10 @@ from acib.name_disambiguation.constants import (
     ARTICLE_PUBLICATION_NAME,
     ARTICLE_SOURCE_TITLE,
     ARTICLE_SOURCE_TITLE_SHORT,
-)
-from acib.name_disambiguation.constants import AUTHOR_IDS as ARTICLE_AUTHOR_ID_COLUMN
-from acib.name_disambiguation.constants import (
+    AUTHOR_IDS as ARTICLE_AUTHOR_ID_COLUMN,
     CANONICAL_GIVEN_NAME,
     CITED_EID,
     CITING_EID,
-)
-from acib.name_disambiguation.constants import (
     ISO3_COUNTRY_CODE as ISO3_COUNTRY_CODE_COLUMN,
 )
 

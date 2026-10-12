@@ -11,15 +11,11 @@ from typing import Any
 
 import pandas as pd
 
-from acib.common.names import given_name_compatible as _shared_given_name_compatible
 from acib.common.names import (
+    given_name_compatible as _shared_given_name_compatible,
     given_tokens,
-)
-from acib.common.names import (
     incompatible_full_given_names as _shared_incompatible_full_given_names,
-)
-from acib.common.names import surname_compatible as _shared_surname_compatible
-from acib.common.names import (
+    surname_compatible as _shared_surname_compatible,
     surname_tokens,
 )
 

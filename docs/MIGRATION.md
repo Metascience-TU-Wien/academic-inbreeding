@@ -89,7 +89,11 @@ Migrate application modules and tests only after the dependency foundation is ve
 
 - Kept disambiguation algorithms and stage options in `src/acib/name_disambiguation/`; added six explicit outputs (pair decisions, cluster memberships, final selections, selection scores, text reports, and JSONL reports).
 - Added `scripts/disambiguate_author_names.py` to pair with `scripts/match_author_names.py`; retained `scripts/run_disambiguation.py` as a backward-compatible alias. The `disambiguate-author-names` command and `python -m acib.name_disambiguation` entry points are also available.
-- The stage consumes `name_matching.resolved_matches_output_file_path` as its upstream input. Shared external researcher, Scopus-author, article-author, and article-reference datasets are represented in `[data]`; legacy path declarations remain accepted when nonconflicting. Legacy `disambiguated_author_path` directory configuration is translated to the six conventional artifact names.
+- The stage consumes `name_matching.resolved_matches_output_file_path` as its
+  upstream input. Shared external researcher, Scopus-author, article-author,
+  and article-reference datasets are represented in `[data]`. Outputs are
+  declared individually under `[name_disambiguation.outputs]`; duplicate and
+  obsolete stage-local path declarations are rejected rather than translated.
 - Implemented a minimal two-stage runner that validates and reuses a present matcher artifact, or runs matching if it is absent, before invoking disambiguation. This is intentionally not a generic pipeline framework.
 - Reused `acib.common.names` for name operations and `acib.common.titles` for final-selection title classification. Kept legacy-compatible name normalization in the disambiguation package where whitespace/null semantics differ from the shared matcher helper.
 - Added Pandera contracts for prepared author rows, publication evidence and citation edges, four tabular disambiguation outputs, and final researcher selections. Validation is at stage boundaries; unrelated researcher/author metadata is retained.
@@ -116,3 +120,134 @@ Migrate application modules and tests only after the dependency foundation is ve
 - A direct representative score comparison between source and target produced identical decision labels, raw scores, confidence, and component/weight pairs. This does not substitute for comparison on the unavailable source fixture.
 - `uv run pytest tests/name_disambiguation/` passed (70 tests); `uv run pytest tests/integration/` passed (5 tests, including the existing matching integration tests). The combined affected-scope command `uv run pytest tests/name_disambiguation/ tests/integration/ tests/schemas/ tests/name_matching/` passed (131 tests). It emitted six existing pandas `FutureWarning`s from name-matching affiliation aggregation; disambiguation tests had no warnings.
 - Pre-commit hooks (Flake8, Black, mypy, isort, and repository checks), Ruff, and explicit mypy checks passed for the migrated test files. Mypy emitted notices about unused unrelated configuration sections. No commits were created.
+
+## Phase 2 — `mobility` code migration
+
+### Configuration ownership and independent execution
+
+- Centralized all external inputs under `[data]`: `researcher_file_path`,
+  `candidate_authors_file`, `article_author_file_path`,
+  `article_reference_file_path`, and `author_affiliations_file_path`. The
+  GeoPackage remains the verified source dataset at
+  `/home/chri/PycharmProjects/name-matching-playground/data/input/author_affiliation.gpkg`;
+  it was not replaced with a different file.
+- Mobility resolves its author-selection input from
+  `name_disambiguation.outputs.final_author_selection`, researcher metadata from
+  `name_matching.resolved_matches_output_file_path`, and article-author and
+  GeoPackage inputs from `[data]`. No generated upstream input points to the
+  legacy repository. The checked-in sample `[data]` paths point to the verified
+  external input datasets under the original repository's `data/input/`
+  directory. Input locations are user-configurable and may be absolute or
+  relative paths anywhere accessible, including that directory; copying or
+  relocating datasets is not required. Application code has no hardcoded
+  external input paths.
+- Removed duplicate/obsolete input and output-directory declarations from
+  `[mobility]`. Matching and disambiguation loaders now require canonical
+  shared-data and explicit stage-output declarations; redundant legacy path
+  keys are rejected rather than retained as indefinite aliases.
+- Defined the four source artifacts individually under `[mobility.outputs]`:
+  `author_affiliations.csv`, `author_affiliations_unique.csv`,
+  `author_inbreeding_proxy.csv`, and `author_articles.csv`. Mobility checks all
+  required inputs and identifies the producing stage for missing generated
+  artifacts. It never invokes matching or disambiguation.
+- The optional source-runner file `professor_author_profiles.csv` is no longer
+  written. This output behavior change was explicitly approved by the user;
+  professor profiles remain available in memory for analysis.
+- Relative paths continue resolving against the target repository root, not
+  the current working directory. No general runner or mobility orchestrator
+  was introduced. Configuration architecture and future-stage dependencies are
+  described in `docs/ARCHITECTURE.md`; permanent rules were added to
+  `.opencode/agents/migration.md` and a concise root `AGENTS.md` was created.
+
+### Implementation and validation
+
+- Reused `acib.common.titles`, shared researcher/author/affiliation fields,
+  disambiguation selection contracts, and disambiguation ASJC parsing. Mobility
+  keeps its GeoPackage contract and analysis fields stage-local.
+- Kept the GeoPackage input field `type` distinct from the mobility output field
+  `affiliation_type`, restoring the original output schema rather than leaking
+  the input column name into the author-affiliation artifact.
+- The workflow applies existing Pandera contracts to the final selection,
+  matching output, article-author input, and GeoPackage. Added meaningful
+  mobility output contracts for the four written artifacts. ID parsing remains
+  non-coercing: final-selection identifiers accept exact integer, integral
+  float, or digit-string representations without rewriting their input dtype;
+  fractional and malformed identifiers are rejected. This accommodates the
+  configured CSV's actual inferred ID dtypes without changing IDs.
+- Reproduced the mixed-type warning on the configured target matching artifact:
+  columns 27 (`person_functions`), 28 (`institute_link`), 34
+  (`person_location_link`), and 35 (`orcid`). These are serialized/free-text,
+  link, or identifier strings—not researcher IDs, author IDs, priorities, or
+  affiliation IDs. Mobility now uses stable CSV inference and explicit string
+  dtypes for those four fields; leading zeros in ORCID values are preserved.
+  The schema check on the configured target metadata also passed.
+- The configured-data run initially failed in parallel preparation because
+  calling `set_index(column_name)` removed the temporary chunk-index column
+  before a subsequent `drop`. The original wrapper sets the index from the
+  Series and then drops the retained column. The target now matches that
+  behavior. Regression tests cover the index-preserving parallel path, the
+  missing-index fallback, and a 5,001-row sequential/parallel preparation
+  comparison.
+- All 38 source test functions were migrated to `tests/mobility/` with their
+  scientific assertions intact. Added configuration/dependency, missing-input,
+  schema/invalid-ID, DtypeWarning, chunk-index, metadata-join, and standalone
+  workflow coverage. The workflow integration test verifies all four
+  configured artifacts and confirms the professor-profile file is absent.
+
+### Scientific regression and end-to-end results
+
+- The two original mobility test files were run read-only with bytecode/cache
+  writing disabled and `PYTHONPATH` pointed at the original source. Result:
+  **38 passed**. The original repository was not modified.
+- The migrated and added mobility tests passed, and the complete target suite
+  passed: `uv run pytest` — **195 passed**, 24 warnings. Warnings were existing
+  pandas `FutureWarning`s in mobility/name-matching affiliation aggregation and
+  a multiprocessing `fork()` deprecation warning; no tests failed.
+- Executed the configured full mobility analysis using the verified GeoPackage
+  and current target-generated upstream artifacts, with all four outputs
+  redirected to a temporary directory. Inputs: 33,275 author-selection rows,
+  40,984 researcher-metadata rows, 690,089 article rows, and 118,198 GeoPackage
+  affiliation rows. The run processed 781,091 article-author rows and 8,238
+  author IDs, generated four schema-valid artifacts (46,564 author-affiliation
+  rows; 9,267 unique affiliations; 8,279 author summaries; 480,971 author
+  articles), and wrote no professor-profile file. Production mobility outputs
+  were empty before the run and were not overwritten.
+- Ran the original mobility algorithm directly against those same target input
+  artifacts and the same scientific settings, writing only to a separate
+  temporary directory. The four artifacts had matching columns, row identities,
+  and values: zero differences in inbreeding classifications/statuses,
+  publication-history and mobility indicators, affiliation histories, unique
+  affiliations, and all compared article fields. The source reader emitted the
+  mixed-type warning described above. Existing source output files from
+  September were also inspected but were not used as the equivalence baseline:
+  their upstream inputs are older and the files are not freshness-verified.
+
+### Quality checks and remaining limitations
+
+- `uv run pytest` passed (195 tests).
+- `uv run ruff check .` passed after making Ruff and isort configuration
+  consistent with `combine_as_imports = true`; four existing disambiguation
+  import blocks were reformatted only to align the two linters.
+- `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/`
+  passed with no type errors. The specifically requested `uv run mypy` command
+  is unavailable because mypy is not a project runtime dependency; the scoped
+  uv invocation and pre-commit mypy hook both ran successfully. Mypy emitted
+  notices for unrelated unused config sections.
+- The first `uv run pre-commit run --all-files` attempt found two Flake8 line
+  length issues and Black reformatted `src/acib/schemas/researchers.py` and
+  `src/acib/pipeline/config.py`. Those lines were fixed; the full test and
+  static checks were rerun after formatting. The final
+  `uv run pre-commit run --all-files` passed all hooks: whitespace/end-of-file,
+  YAML/AST/JSON/TOML/private-key checks, license insertion, Flake8, Black, mypy,
+  and isort.
+- The stored legacy mobility outputs do not match the current pipeline inputs
+  and are not treated as current results. Same-input current source-vs-target
+  execution showed exact equivalence. Stale-artifact detection remains
+  unimplemented and is not implied by file existence or schema validity.
+- The current configured mobility run and direct source comparison succeeded
+  using the external paths in `[data]`. The configured sample uses files under
+  the legacy repository, but this is a user-controlled external-data location,
+  not a generated-artifact dependency or migration blocker. No dataset copies
+  were made.
+- No later stage was migrated, no scientific method was changed, and no commit
+  was created.
