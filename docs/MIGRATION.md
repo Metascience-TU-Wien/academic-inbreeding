@@ -82,8 +82,8 @@ Migrate application modules and tests only after the dependency foundation is ve
 
 ### Status
 
-- The disambiguation implementation, matcher-output dependency, publication-evidence inputs, configured artifact outputs, and minimal matcher-to-disambiguation runner have been migrated. Phase 3 static checks passed; test migration and regression comparison remain gated on explicit approval.
-- The original repository has not been modified. No disambiguation tests were created, copied, or edited during this phase.
+- The disambiguation implementation, matcher-output dependency, publication-evidence inputs, configured artifact outputs, and minimal matcher-to-disambiguation runner have been migrated. Phase 3 static checks passed; Phase 4 test migration for this stage is now complete.
+- The original repository's tests and source files remain unmodified. Target disambiguation tests are organized under `tests/name_disambiguation/`; one full workflow test is under `tests/integration/`.
 
 ### Architectural decisions and implementation
 
@@ -109,4 +109,10 @@ Migrate application modules and tests only after the dependency foundation is ve
 - `uv run ruff check src/acib/name_disambiguation src/acib/pipeline src/acib/schemas` passed.
 - `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_disambiguation src/acib/pipeline src/acib/schemas` passed with no type errors. Mypy printed notices for unused module-specific config sections outside this analysis scope.
 - `uv run python -m compileall -q src/acib/name_disambiguation src/acib/pipeline src/acib/schemas` passed. A runtime import/config smoke check resolved the configured paths and thresholds successfully.
-- Pytest was not run, and tests were not migrated. Await explicit approval before Phase 4 for `name_disambiguation`.
+- Migrated and grouped the original 87 disambiguation test methods into 66 pytest tests under `tests/name_disambiguation/`, preserving their scientific assertions for parsing, scoring, threshold/classification behavior, gender and temporal blockers, ASJC selection, clustering, histories, reporting, and configuration. Added edge coverage for nullable integer inputs, malformed/missing publication evidence, empty batches, output overwrite checks, and all six output artifacts.
+- Added `tests/integration/test_name_disambiguation_workflow.py` with small temporary CSV inputs to verify matcher artifact loading, nullable affiliation IDs, publication evidence, scoring, selection, schema validation, and all six outputs. No tests for other unmigrated stages were added or changed.
+- The source-referenced `data/disambiguation/author.csv` fixture is absent from the original repository. Three source tests depending on it were adapted to a small inline profile fixture; the original asserted cluster shape and representative ID checks remain, but full fixture-specific source comparison could not be performed.
+- Ran the original test file read-only with bytecode and pytest cache writing disabled: `tests/test_disambiguation.py` collected 87 tests, with 82 passing and 5 failing. Three failures were `FileNotFoundError` for the absent `author.csv`. Two source assertions disagree with the source implementation: the initial-overlap case expects `given_conflict_with_initials_conflict` but emits `given_conflict_with_initial_overlap`; the lowered-threshold case expects `same_author` but returns `possible_same_author` because the initial-only risk cap takes precedence. Migrated assertions use the observed source behavior, and the original test file remains untouched.
+- A direct representative score comparison between source and target produced identical decision labels, raw scores, confidence, and component/weight pairs. This does not substitute for comparison on the unavailable source fixture.
+- `uv run pytest tests/name_disambiguation/` passed (70 tests); `uv run pytest tests/integration/` passed (5 tests, including the existing matching integration tests). The combined affected-scope command `uv run pytest tests/name_disambiguation/ tests/integration/ tests/schemas/ tests/name_matching/` passed (131 tests). It emitted six existing pandas `FutureWarning`s from name-matching affiliation aggregation; disambiguation tests had no warnings.
+- Pre-commit hooks (Flake8, Black, mypy, isort, and repository checks), Ruff, and explicit mypy checks passed for the migrated test files. Mypy emitted notices about unused unrelated configuration sections. No commits were created.

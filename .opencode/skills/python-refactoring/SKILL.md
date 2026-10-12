@@ -95,3 +95,12 @@ def process_records(records: list[Record]) -> list[Record]:
 ## Checks
 
 Run Ruff and mypy using the target repository's configured commands and scope after implementation changes. Report commands, results, and any pre-existing or environment-related failures accurately. Static-analysis success does not replace the approval-gated behavioral tests described by the testing skill.
+
+Before considering Python changes complete, run the repository's applicable
+pre-commit hooks against **all changed files** (for example,
+`pre-commit run --files <changed paths>`), not only Ruff, Black, or mypy
+individually. In this repository Flake8 enforces a 100-character line limit;
+Black formatting and Ruff success do not guarantee Flake8 passes. Treat a
+passing full pre-commit run as the final hook gate. If any hook reformats files,
+rerun the relevant tests and static checks after formatting, then rerun
+pre-commit before reporting completion.
