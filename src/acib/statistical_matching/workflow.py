@@ -67,13 +67,16 @@ def run_statistical_matching_suite_from_config(
     validate_paths: bool = False,
     write_outputs: bool = True,
 ) -> StatisticalMatchingResult:
-    """Load canonical configuration and run matching independently.
+    """Ensure the regression input exists and run configured statistical matching.
 
     :param config_path: Pipeline configuration file.
     :param validate_paths: Whether to check the input artifact before running.
     :param write_outputs: Whether to write tables and plots.
     :return: Estimates and diagnostics from the suite.
     """
+    from acib.pipeline.dependencies import ensure_stage_dependencies
+
+    ensure_stage_dependencies("statistical_matching", config_path)
     config = load_statistical_matching_config(config_path)
     if validate_paths:
         config.check_input_exists()

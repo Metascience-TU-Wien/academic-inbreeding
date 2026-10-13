@@ -523,6 +523,20 @@ preserving dynamic filenames. Dependency properties are
 `name_disambiguation.outputs.final_author_selection`,
 `mobility.outputs.author_inbreeding_proxy`, and
 `regression.outputs.regression_input`. Relative paths resolve from the project
-root, absolute paths remain absolute, stages remain independently invoked, and
+root, absolute paths remain absolute, stages remain explicitly invoked, and
 stale-artifact detection is not implemented. See `docs/ARCHITECTURE.md` for the
 canonical specification.
+
+## Approved dependency auto-execution
+
+The project owner approved running a producer stage automatically when a
+user-invoked stage is missing one of its configured generated inputs. The
+dependency graph is explicit: disambiguation ensures matching; mobility ensures
+matching and disambiguation; regression ensures mobility when it rebuilds its
+input; statistical matching ensures regression's input artifact, building that
+input without fitting the regression model suite. Name matching has no upstream
+producer. Missing external datasets remain errors. Existing artifacts are
+reused without freshness detection. To prevent accidental replacement,
+auto-execution refuses partial producer output sets unless the producer's
+explicit overwrite option is supplied. See `docs/ARCHITECTURE.md` and
+`acib.pipeline.dependencies` for the canonical behavior.

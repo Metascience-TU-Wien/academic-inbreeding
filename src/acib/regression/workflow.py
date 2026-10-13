@@ -98,7 +98,7 @@ def run_regression_suite_from_config(
     write_outputs: bool = True,
     print_model_summaries: bool = False,
 ) -> RegressionSuiteResult:
-    """Load regression's shared configuration and run it without upstream auto-run.
+    """Ensure required upstream artifacts, then run the configured regression suite.
 
     :param config_path: Pipeline TOML file.
     :param validate_paths: Validate mode-specific required inputs before running.
@@ -107,6 +107,9 @@ def run_regression_suite_from_config(
     :return: Fitted regression suite result.
     :raises KeyError: If the regression stage is not configured.
     """
+    from acib.pipeline.dependencies import ensure_stage_dependencies
+
+    ensure_stage_dependencies("regression", config_path)
     config = load_regression_config(config_path)
     if validate_paths:
         if config.rebuild_input:
