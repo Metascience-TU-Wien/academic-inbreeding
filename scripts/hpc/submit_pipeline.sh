@@ -13,8 +13,10 @@
 set -euo pipefail
 
 REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-CONFIG_DIR="${ACIB_CONFIG_DIR:-${REPO_DIR}/config}"
-IMAGE_PATH="${ACIB_APPTAINER_IMAGE:-${REPO_DIR}/academic-inbreeding.sif}"
+source "${REPO_DIR}/scripts/hpc/environment.sh"
+CONFIG_DIR="${ACIB_CONFIG_DIR}"
+DATA_DIR="${ACIB_DATA_DIR}"
+IMAGE_PATH="${ACIB_APPTAINER_IMAGE}"
 
 require_command() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -25,7 +27,9 @@ require_command() {
 
 submit_job() {
     local output
-    output="$(sbatch --parsable "$@")"
+    local export_environment
+    export_environment="ALL,ACIB_CONFIG_DIR=${CONFIG_DIR},ACIB_DATA_DIR=${DATA_DIR},ACIB_APPTAINER_IMAGE=${IMAGE_PATH}"
+    output="$(sbatch --export="${export_environment}" --parsable "$@")"
     echo "${output%%;*}"
 }
 
@@ -36,6 +40,10 @@ test -f "${CONFIG_DIR}/pipeline.toml" || {
 }
 test -f "${IMAGE_PATH}" || {
     echo "Missing Apptainer image: ${IMAGE_PATH}" >&2
+    exit 1
+}
+test -d "${DATA_DIR}/input" || {
+    echo "Missing shared input directory: ${DATA_DIR}/input" >&2
     exit 1
 }
 for script in \
@@ -67,6 +75,7 @@ statistical_matching_job_id="$(submit_job --chdir="${REPO_DIR}" \
     "${REPO_DIR}/scripts/hpc/statistical_matching_analysis.sh")"
 
 echo "Submitted academic-inbreeding pipeline jobs:"
+echo "  data directory:       ${DATA_DIR}"
 echo "  matching:             ${matching_job_id}"
 echo "  disambiguation:       ${disambiguation_job_id} afterok:${matching_job_id}"
 echo "  mobility:             ${mobility_job_id} afterok:${disambiguation_job_id}"

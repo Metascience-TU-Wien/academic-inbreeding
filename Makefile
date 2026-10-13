@@ -56,7 +56,7 @@ apptainer-build:
 
 apptainer-submit:
 	mkdir -p logs
-	ACIB_CONFIG_DIR="$(CONFIG_DIR)" ACIB_DATA_DIR="$(DATA_DIR)" \
+	ACIB_CONFIG_DIR="$(CONFIG_DIR)" \
 	ACIB_APPTAINER_IMAGE="$(APPTAINER_IMAGE)" \
 	sbatch --chdir="$(CURDIR)" scripts/hpc/submit_pipeline.sh
 
@@ -67,21 +67,21 @@ apptainer-shell:
 		$(APPTAINER_IMAGE) /bin/bash
 
 apptainer-matching:
-	ACIB_CONFIG_DIR="$(CONFIG_DIR)" ACIB_DATA_DIR="$(DATA_DIR)" \
+	ACIB_CONFIG_DIR="$(CONFIG_DIR)" \
 	ACIB_APPTAINER_IMAGE="$(APPTAINER_IMAGE)" scripts/hpc/match_author_names.sh $(ARGS)
 
 apptainer-disambiguation:
-	ACIB_CONFIG_DIR="$(CONFIG_DIR)" ACIB_DATA_DIR="$(DATA_DIR)" \
+	ACIB_CONFIG_DIR="$(CONFIG_DIR)" \
 	ACIB_APPTAINER_IMAGE="$(APPTAINER_IMAGE)" scripts/hpc/disambiguate_author_names.sh $(ARGS)
 
 apptainer-mobility:
-	ACIB_CONFIG_DIR="$(CONFIG_DIR)" ACIB_DATA_DIR="$(DATA_DIR)" \
+	ACIB_CONFIG_DIR="$(CONFIG_DIR)" \
 	ACIB_APPTAINER_IMAGE="$(APPTAINER_IMAGE)" scripts/hpc/analyze_mobility.sh $(ARGS)
 
 apptainer-regression:
-	ACIB_CONFIG_DIR="$(CONFIG_DIR)" ACIB_DATA_DIR="$(DATA_DIR)" \
+	ACIB_CONFIG_DIR="$(CONFIG_DIR)" \
 	ACIB_APPTAINER_IMAGE="$(APPTAINER_IMAGE)" scripts/hpc/regression_analysis.sh $(ARGS)
 
 apptainer-statistical-matching:
-	ACIB_CONFIG_DIR="$(CONFIG_DIR)" ACIB_DATA_DIR="$(DATA_DIR)" \
+	ACIB_CONFIG_DIR="$(CONFIG_DIR)" \
 	ACIB_APPTAINER_IMAGE="$(APPTAINER_IMAGE)" scripts/hpc/statistical_matching_analysis.sh $(ARGS)

@@ -13,9 +13,10 @@
 set -euo pipefail
 
 REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-CONFIG_DIR="${ACIB_CONFIG_DIR:-${REPO_DIR}/config}"
-DATA_DIR="${ACIB_DATA_DIR:-${REPO_DIR}/data}"
-IMAGE_PATH="${ACIB_APPTAINER_IMAGE:-${REPO_DIR}/academic-inbreeding.sif}"
+source "${REPO_DIR}/scripts/hpc/environment.sh"
+CONFIG_DIR="${ACIB_CONFIG_DIR}"
+DATA_DIR="${ACIB_DATA_DIR}"
+IMAGE_PATH="${ACIB_APPTAINER_IMAGE}"
 CPUS="${SLURM_CPUS_PER_TASK:-3}"
 
 cd "${REPO_DIR}"
