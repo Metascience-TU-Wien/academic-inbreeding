@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 .venv/
+*.sif
 
 # Test and tooling caches
 .pytest_cache/

@@ -1,0 +1,41 @@
+Bootstrap: docker
+From: python:3.12-slim
+
+%files
+    pyproject.toml /app/pyproject.toml
+    uv.lock /app/uv.lock
+    src /app/src
+    scripts /app/scripts
+
+%environment
+    export UV_PROJECT_ENVIRONMENT=/opt/venv
+    export UV_LINK_MODE=copy
+    export PYTHONUNBUFFERED=1
+    export MPLBACKEND=Agg
+    export PATH=/opt/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+%post
+    export UV_PROJECT_ENVIRONMENT=/opt/venv
+    export UV_LINK_MODE=copy
+
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates
+    rm -rf /var/lib/apt/lists/*
+
+    python -m pip install --no-cache-dir uv==0.11.2
+    cd /app
+    uv sync --frozen --no-dev
+
+%runscript
+    cd /app
+    if [ "$#" -eq 0 ]; then
+        set -- match-author-names --help
+    fi
+    exec "$@"
+
+%test
+    cd /app
+    python -c "import acib, pandas, geopandas, pyogrio, scipy, cdindex"
+    /opt/venv/bin/match-author-names --help
