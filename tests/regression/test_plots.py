@@ -156,6 +156,33 @@ def test_model9_predictions_from_fitted_suite_result() -> None:
     assert len(plot.data.predictions) == 8
     assert len(plot.axes) == 4
 
+    title_plot = Model9InbreedingPredictionPlot.from_result(
+        result=fitted,
+        config=Model9InbreedingPredictionPlotConfig(title="Ao. Prof."),
+    )
+    assert len(title_plot.data.predictions) == 8
+    assert set(title_plot.data.predictions["title"]) == {"Ao. Prof."}
+    for axis, outcome in zip(title_plot.axes, title_plot.data.config.outcomes, strict=True):
+        panel = title_plot.data.predictions[
+            title_plot.data.predictions["dependent_variable"].eq(outcome.column)
+        ]
+        x_min, x_max = axis.get_xlim()
+        assert x_min <= panel["conf_low"].min()
+        assert x_max >= panel["conf_high"].max()
+
+    combined_plot = Model9InbreedingPredictionPlot.from_result(
+        result=fitted,
+        config=Model9InbreedingPredictionPlotConfig(group_by_title=True),
+    )
+    assert len(combined_plot.data.predictions) == 40
+    assert set(combined_plot.data.predictions["title"]) == {
+        "Full Prof.",
+        "Ao. Prof.",
+        "Ass. Prof.",
+        "FH-Prof.",
+        "FH-Ass. Prof.",
+    }
+
 
 def test_model9_prediction_plot_requires_output_directory() -> None:
     plot = Model9InbreedingPredictionPlot.from_dataframe(data=regression_frame())

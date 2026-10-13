@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pandas as pd
@@ -32,6 +32,7 @@ from acib.regression.model import FittedRegressionModel
 from acib.regression.models import fit_regression_model, validate_mle_fit
 from acib.regression.output import write_regression_suite_outputs
 from acib.regression.plots.model9_inbreeding_predictions import (
+    DEFAULT_OUTPUT_BASENAME as MODEL9_PREDICTION_OUTPUT_BASENAME,
     Model9InbreedingPredictionPlot,
     Model9InbreedingPredictionPlotConfig,
 )
@@ -329,9 +330,21 @@ class RegressionSuiteResult:
             result=self,
             config=plot_config,
         )
-        paths = plot.write()
+        paths = list(plot.write())
         plt.close(plot.figure)
-        return paths
+        combined_config = replace(
+            plot_config,
+            output_basename=f"{MODEL9_PREDICTION_OUTPUT_BASENAME}_by_title",
+            group_by_title=True,
+            figure_size=(16.0, 10.5),
+        )
+        combined_plot = Model9InbreedingPredictionPlot.from_result(
+            result=self,
+            config=combined_config,
+        )
+        paths.extend(combined_plot.write())
+        plt.close(combined_plot.figure)
+        return tuple(paths)
 
     def write_professor_violin_plot(
         self, *, plots_dir: Path, professor_articles: pd.DataFrame | None

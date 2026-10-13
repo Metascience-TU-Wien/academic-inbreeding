@@ -33,7 +33,7 @@ def regression_frame() -> pd.DataFrame:
     count = 240
     age = np.arange(count, dtype=float) % 35 + 1
     inbred = np.arange(count) % 2 == 0
-    title_values = np.array(["Full Prof.", "Ao. Prof.", "Ass. Prof.", "FH-Prof."])
+    title_values = np.array(["Full Prof.", "Ao. Prof.", "Ass. Prof.", "FH-Prof.", "FH-Ass. Prof."])
     med_share = (np.arange(count) % 7) / 7
     return pd.DataFrame(
         {
@@ -273,6 +273,8 @@ def test_model9_writer_ignores_unrelated_nb_fit_and_writes_plot(tmp_path: Path) 
     result.write(outputs_under(tmp_path), data=suite.data, professor_articles=professor_articles)
 
     assert (tmp_path / "plots" / "model9_inbreeding_predictions.png").is_file()
+    assert (tmp_path / "plots" / "model9_inbreeding_predictions_by_title.png").is_file()
+    assert not (tmp_path / "plots" / "model9_inbreeding_predictions_full_prof.png").exists()
     assert not (tmp_path / "plots" / "model9_inbreeding_predictions.csv").exists()
     assert (tmp_path / "plots" / "professor_title_inbreeding_violin.png").is_file()
 
