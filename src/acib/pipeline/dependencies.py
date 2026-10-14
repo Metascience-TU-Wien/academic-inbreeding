@@ -43,7 +43,7 @@ def ensure_stage_dependencies(
     if stage == "name_matching":
         return
     if stage == "name_disambiguation":
-        _ensure_disambiguation(config_path, overwrite=overwrite)
+        _ensure_matching(config_path)
         return
     if stage == "mobility":
         _ensure_mobility(config_path)

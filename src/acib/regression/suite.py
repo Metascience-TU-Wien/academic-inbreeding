@@ -15,7 +15,7 @@ from acib.regression.analysis_config import (
     OUTCOME_DISPLAY_LABELS,
     RegressionSuiteConfig,
 )
-from acib.regression.config import RegressionOutputs
+from acib.regression.config import RegressionOutputs, is_ols_model_type
 from acib.regression.constants import (
     ABSOLUTE_PERFORMANCE_OUTCOMES,
     ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
@@ -321,7 +321,7 @@ class RegressionSuiteResult:
         }
         if not model9_plot_models:
             return ()
-        if any(model.model_type != "ols" for model in model9_plot_models.values()):
+        if any(not is_ols_model_type(model.model_type) for model in model9_plot_models.values()):
             _logger.info("Skipping model 9 prediction plot for non-OLS model results")
             return ()
         from matplotlib import pyplot as plt

@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from acib.regression.config import is_ols_model_type
 from acib.regression.models import (
     average_comparison_for_binary_indicator,
     average_predictions_for_binary_indicator,
@@ -108,7 +109,7 @@ class FittedRegressionModel:
         :param variable: Binary indicator varied in the prediction scenarios.
         :return: Prediction rows, or an empty frame for non-OLS models.
         """
-        if self.model_type != "ols":
+        if not is_ols_model_type(self.model_type):
             return pd.DataFrame()
         return pd.DataFrame(
             average_predictions_for_binary_indicator(
@@ -124,7 +125,7 @@ class FittedRegressionModel:
         :param variable: Binary indicator used for the comparison.
         :return: A one-row comparison frame, or an empty frame when unavailable.
         """
-        if self.model_type != "ols":
+        if not is_ols_model_type(self.model_type):
             return pd.DataFrame()
         row = average_comparison_for_binary_indicator(
             fit=self.fit,

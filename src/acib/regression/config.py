@@ -32,8 +32,14 @@ from acib.regression.constants import (
     REGRESSION_INPUT_DIAGNOSTICS_FILENAME,
 )
 
-RegressionModelType = Literal["ols", "pr", "nb", "zinb"]
+RegressionModelType = Literal["ols", "olshc3", "pr", "nb", "zinb"]
 RegressionOutcomeType = Literal["relative", "absolute"]
+OLS_MODEL_TYPES = frozenset({"ols", "olshc3"})
+
+
+def is_ols_model_type(model_type: str) -> bool:
+    """Return whether a configured model uses the linear OLS estimator."""
+    return model_type in OLS_MODEL_TYPES
 
 
 @dataclass(frozen=True, slots=True)

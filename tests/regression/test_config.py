@@ -30,7 +30,7 @@ directory = "data/test-mobility"
 rebuild_input = false
 
 [regression.dependent_variables]
-pp_top_10 = "ols"
+pp_top_10 = "olshc3"
 
 [regression.outcome_metadata.pp_top_10]
 outcome_type = "relative"
@@ -53,7 +53,7 @@ directory = "data/test-regression"
         PROJECT_ROOT / "data/test-regression/author_regression_input.csv"
     )
     assert config.outputs.plots_dir == PROJECT_ROOT / "data/test-regression/plots"
-    assert config.dependent_variables == {"pp_top_10": "ols"}
+    assert config.dependent_variables == {"pp_top_10": "olshc3"}
     assert "statistical_matching" not in config_file.read_text(encoding="utf-8")
     assert "mobility_impact" not in config_file.read_text(encoding="utf-8")
 

@@ -1,5 +1,5 @@
 [data]
-researcher_file_path = "data/input/all_scraped_merged_labelled_with_scopus.csv"
+researcher_file_path = "data/input/all_scraped_merged_labelled_with_scopus_vetmed_corrected.csv"
 candidate_authors_file = "data/input/authors_scopus_extended.csv"
 article_author_file_path = "data/input/article.parquet"
 article_reference_file_path = "data/input/article_reference.parquet"
@@ -51,6 +51,7 @@ exclude_titles = []
 rebuild_input = true
 
 [regression.dependent_variables]
+# Relative impact outcomes use OLS coefficients with HC3-robust standard errors.
 hazen_perc_med = "ols"
 pp_top_10 = "ols"
 pp_top_5 = "ols"

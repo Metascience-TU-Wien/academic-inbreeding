@@ -10,7 +10,7 @@ import pandas as pd
 import structlog
 from scipy import stats
 
-from acib.regression.config import RegressionOutputs
+from acib.regression.config import RegressionOutputs, is_ols_model_type
 from acib.regression.constants import (
     DEFAULT_REGRESSION_DEPENDENT_VARIABLES,
 )
@@ -186,9 +186,11 @@ def fit_regression_model(
     :raises RuntimeError: If both NB optimizers fail to produce a candidate.
     """
     smf = import_statsmodels_formula_api()
-    fit_options = {"cov_type": covariance_type} if covariance_type else {}
-    if model_type == "ols":
+    if is_ols_model_type(model_type):
+        ols_covariance_type = "HC3" if model_type == "olshc3" else covariance_type
+        fit_options = {"cov_type": ols_covariance_type} if ols_covariance_type else {}
         return smf.ols(formula=formula, data=data).fit(**fit_options)
+    fit_options = {"cov_type": covariance_type} if covariance_type else {}
     if model_type not in {"pr", "nb", "zinb"}:
         raise ValueError(f"Unsupported regression model type: {model_type!r}")
 
@@ -610,7 +612,7 @@ def format_regression_summary(
     :param formula: Formula used to fit the model.
     :return: R-style formatted regression summary.
     """
-    if model_type != "ols":
+    if not is_ols_model_type(model_type):
         extra = f"\nInflation formula: {inflation_formula}" if inflation_formula else ""
         return (
             f"Dependent variable: {dependent_variable} | Model: {model_id} ({model_type})\n"
@@ -627,8 +629,14 @@ def format_regression_summary(
         data=data,
         variable="is_inbred",
     )
+    model_label = f"{model_id} (olshc3)" if model_type == "olshc3" else model_id
     sections = [
-        f"Dependent variable: {dependent_variable} | Model: {model_id}",
+        f"Dependent variable: {dependent_variable} | Model: {model_label}",
+        *(
+            ["Covariance estimator: HC3 (heteroskedasticity-robust)."]
+            if model_type == "olshc3"
+            else []
+        ),
         "",
         "Call:",
         f"lm(formula = {formula}, data = df)",

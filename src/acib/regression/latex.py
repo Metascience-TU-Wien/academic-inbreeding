@@ -20,6 +20,7 @@ from acib.constants import (
     PP_TOP_5,
     PP_TOP_10,
 )
+from acib.regression.config import OLS_MODEL_TYPES
 from acib.regression.constants import (
     ABSOLUTE_PERFORMANCE_OUTCOMES,
     ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
@@ -373,7 +374,7 @@ def model10_without_international_mobility_note(
     has_publication_count = N_PUBLIC in absolute_outcomes
     is_negative_binomial = model_types.get(N_PUBLIC) == "nb"
     other_outcomes_are_ols = all(
-        model_types.get(outcome, "ols") == "ols"
+        model_types.get(outcome, "ols") in OLS_MODEL_TYPES
         for outcome in (*relative_outcomes, *absolute_outcomes)
         if outcome != N_PUBLIC
     )
@@ -381,7 +382,7 @@ def model10_without_international_mobility_note(
         publication_model_note = (
             "The number of publications is estimated using negative binomial regression and "
             "its estimate is expressed on the log expected-count scale; all other outcomes "
-            "are estimated using OLS."
+            "are estimated using OLS (with HC3-robust standard errors where configured)."
         )
     elif has_publication_count and is_negative_binomial:
         publication_model_note = (
@@ -983,7 +984,9 @@ def absolute_performance_note(
         labels = ", ".join(
             outcome_label(outcome, outcome_aliases) for outcome in percentile_outcomes
         )
-        if all(model_types.get(outcome, "ols") == "ols" for outcome in percentile_outcomes):
+        if all(
+            model_types.get(outcome, "ols") in OLS_MODEL_TYPES for outcome in percentile_outcomes
+        ):
             notes.append(
                 f"{labels} are fractional counts of highly cited publications and are "
                 "estimated using OLS; their coefficients are expressed on the original "
@@ -1026,8 +1029,14 @@ def relative_performance_note(
 def model_inference_note(model_types: dict[str, str]) -> str:
     model_families = set(model_types.values())
     notes = []
-    if "ols" in model_families:
-        notes.append("OLS $p$-values are based on $t$-tests")
+    if model_families.intersection(OLS_MODEL_TYPES):
+        if "olshc3" in model_families:
+            notes.append(
+                "OLS $p$-values are based on $t$-tests; HC3 standard errors are "
+                "heteroskedasticity-robust"
+            )
+        else:
+            notes.append("OLS $p$-values are based on $t$-tests")
     if model_families.intersection({"pr", "nb", "zinb"}):
         notes.append("count-model $p$-values are based on $z$-tests")
     if not notes:
@@ -1398,7 +1407,7 @@ def model_comparison_latex_table(
     lines.append(r"\addlinespace[4pt]")
     lines.append(model_comparison_inclusion_row("ASJC field shares", columns))
     lines.append(r"\midrule")
-    if all(column.model.model_type == "ols" for column in columns):
+    if all(column.model.model_type in OLS_MODEL_TYPES for column in columns):
         lines.append(model_comparison_adjusted_r_squared_row(columns))
     lines.append(model_comparison_aic_row(columns))
     lines.append(model_comparison_bic_row(columns))

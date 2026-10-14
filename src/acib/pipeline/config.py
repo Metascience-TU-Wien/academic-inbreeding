@@ -666,7 +666,7 @@ def _load_regression_dependent_variables(
         for outcome, model in values.items()
     ):
         raise TypeError("regression.dependent_variables must map outcomes to model families")
-    allowed = {"ols", "pr", "nb", "zinb"}
+    allowed = {"ols", "olshc3", "pr", "nb", "zinb"}
     invalid = {model for model in values.values() if model not in allowed}
     if invalid:
         raise ValueError("Unsupported regression model family: " + ", ".join(sorted(invalid)))

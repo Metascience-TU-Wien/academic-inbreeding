@@ -142,7 +142,11 @@ class ResearcherDisambiguationSelectionSchema(pa.DataFrameModel):
         :param values: Selected Scopus author identifiers.
         :return: Row-wise identifier validity mask.
         """
-        return values.map(lambda value: pd.isna(value) or _is_valid_identifier(value))
+        return values.map(
+            lambda value: pd.isna(value)
+            or (isinstance(value, str) and not value.strip())
+            or _is_valid_identifier(value)
+        )
 
     class Config:
         """Retain output enrichments not required by the core selection contract."""

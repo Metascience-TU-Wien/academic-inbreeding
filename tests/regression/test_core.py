@@ -444,7 +444,7 @@ def test_regression_suite_excludes_configured_titles() -> None:
     assert result.fit_statistics.loc[0, "n_obs"] == 4
 
 
-@pytest.mark.parametrize("family", ["ols", "pr", "nb", "zinb"])
+@pytest.mark.parametrize("family", ["ols", "olshc3", "pr", "nb", "zinb"])
 def test_suite_fits_configured_model_families(family: str) -> None:
     rng = np.random.default_rng(2026)
     x = rng.normal(size=500)
@@ -464,6 +464,9 @@ def test_suite_fits_configured_model_families(family: str) -> None:
     assert fitted.model_type == family
     assert set(result.coefficients.term) >= {"Intercept", "x"}
     assert result.summaries["count_m1"]
+    if family == "olshc3":
+        assert fitted.fit.cov_type == "HC3"
+        assert "HC3 (heteroskedasticity-robust)" in fitted.summary_text
     if family == "zinb":
         assert fitted.fit.mle_retvals["converged"]
     if family == "nb":
@@ -519,12 +522,35 @@ def test_poisson_pseudo_likelihood_accepts_fractional_counts() -> None:
     assert fit.nobs == 8
 
 
+def test_olshc3_uses_hc3_standard_errors_without_changing_ols_coefficients() -> None:
+    rng = np.random.default_rng(341)
+    x = np.linspace(-2.0, 2.0, 300)
+    noise = rng.normal(scale=0.15 + np.abs(x), size=len(x))
+    data = pd.DataFrame({"outcome": 0.5 + 1.2 * x + noise, "x": x})
+
+    ordinary = fit_regression_model(model_type="ols", formula="outcome ~ x", data=data)
+    robust = fit_regression_model(
+        model_type="olshc3",
+        formula="outcome ~ x",
+        data=data,
+        covariance_type="HC0",
+    )
+
+    assert robust.cov_type == "HC3"
+    pd.testing.assert_series_equal(ordinary.params, robust.params)
+    assert not np.allclose(ordinary.bse, robust.bse)
+
+
 def test_latex_significance_and_model_inference_keep_model_family_semantics() -> None:
     assert format_p_value_cell(0.00001) == r"0.00\textsuperscript{***}"
     assert format_p_value_cell(0.032519) == r"0.033\textsuperscript{*}"
     assert format_p_value_cell(0.069892) == "0.070"
     assert model_inference_note({"n_public": "nb", "P_top10": "ols"}) == (
         "OLS $p$-values are based on $t$-tests; count-model $p$-values are based on $z$-tests."
+    )
+    assert model_inference_note({"pp_top_10": "olshc3"}) == (
+        "OLS $p$-values are based on $t$-tests; HC3 standard errors are "
+        "heteroskedasticity-robust."
     )
 
 
