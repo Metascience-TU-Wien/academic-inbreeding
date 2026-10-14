@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from acib.constants import AUTHOR_ID, EID, SUBJECT_AREAS
+
 PAIR_DECISIONS_FILENAME = "pair_decisions.csv"
 CLUSTERS_FILENAME = "clusters.csv"
 FINAL_AUTHOR_SELECTION_FILENAME = "final_author_selection.csv"
@@ -34,6 +36,33 @@ ARTICLE_GRANT_NUMBER = "grant_number"
 ARTICLE_GRANT_NUMBERS = "grant_numbers"
 ARTICLE_GRANT_ID = "grant_id"
 ARTICLE_FUND_NUMBER = "fund_no"
+
+# The source disambiguation loader projects article evidence to these fields.
+ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS = (
+    EID,
+    AUTHOR_IDS,
+    AUTHOR_ID,
+    SUBJECT_AREAS,
+    ARTICLE_JOURNAL,
+    ARTICLE_SOURCE_TITLE,
+    ARTICLE_SOURCE_TITLE_SHORT,
+    ARTICLE_PUBLICATION_NAME,
+    ARTICLE_CITY,
+    ARTICLE_PUBLICATION_CITY,
+    ARTICLE_AFFILIATION_CITY,
+    ARTICLE_COUNTRY,
+    ARTICLE_COUNTRY_CODE,
+    ARTICLE_PUBLICATION_COUNTRY,
+    ARTICLE_AFFILIATION_COUNTRY,
+    "iso3_country_code",
+    ISO3_COUNTRY_CODE,
+    ARTICLE_GRANT_NUMBER,
+    ARTICLE_GRANT_NUMBERS,
+    ARTICLE_GRANT_ID,
+    ARTICLE_FUND_NUMBER,
+    ARTICLE_AUTHOR_NAMES,
+)
+ARTICLE_REFERENCE_INPUT_COLUMNS = ("citing_eid", CITED_EID)
 
 # Prepared author-frame fields.
 CANONICAL_NAME = "canonical_name"

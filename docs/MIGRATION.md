@@ -1,5 +1,88 @@
 # Migration plan and results
 
+## Full-data name-disambiguation equivalence correction
+
+- The migrated name-matching artifact correctly retains every field from the
+  corrected researcher input; this artifact and the corrected source dataset
+  were not changed. The source matcher, however, did not expose all of those
+  fields on matched (`priority != 0`) rows to disambiguation. In particular,
+  target-only `person_email` and researcher `orcid` values created email/ORCID
+  pair evidence, while raw `[]` inferred-ASJC values prevented the source
+  organization's ASJC inference from running.
+- The candidate-author, article-author, citation-edge, affiliation, and impact
+  inputs were SHA-256 identical between repositories. The 93,855-row researcher
+  files differ only in `person_name`/`person_surname` for 884 rows; their
+  `person_fullname` values and row order are identical. The target retained the
+  corrected fields and added no matching-algorithm name swap.
+- Disambiguation now creates a separate evidence copy of the matcher artifact:
+  it applies the existing source-compatible ASJC inference helper; retains
+  email only on pre-resolved (`priority == 0`) rows, as the source output did;
+  and clears researcher ORCID, which the source matcher did not pass through.
+  It does not mutate or rewrite the canonical name-matching artifact. No name
+  swapping was added to matching; the corrected input remains authoritative.
+- With identical current article/reference datasets, `PYTHONHASHSEED=0`, and
+  five workers, the corrected target evidence projection matched the freshly
+  generated original disambiguation outputs exactly across all tabular
+  artifacts: 32,953 final selections, 13,847 pair decisions, 40,371 cluster
+  rows, and 8,279 selection-score rows. Keys and all values matched.
+- The existing target name-matching artifact's inferred codes, after applying
+  the source helper to a copy, matched the source-generated codes for all
+  32,953 researcher IDs. The full target disambiguation run then matched the
+  fresh source run exactly despite retaining the corrected metadata in its
+  upstream matcher artifact.
+- Mobility was rerun to a temporary output directory with the matched
+  disambiguation results. Its four output artifacts matched the fresh original
+  outputs by row values, except one grant-number serialization difference in
+  the mobility proxy (`DFF\\u2fff...` versus the corresponding Unicode
+  character); article rows and all classification/history fields matched.
+  Regression inputs exclude that field.
+- Regression was rerun to temporary output using the temporary mobility
+  artifact. The 7,842-row `author_regression_input.csv` matched the fresh
+  original by researcher ID and every column value; the 653,163-row
+  professor-article input also matched exactly. All 80 model/outcome fit rows
+  had the same keys, formulas, and observation counts. Across all coefficient
+  rows, maximum absolute differences were `1.271e-9` for estimates,
+  `3.153e-11` for standard errors, `1.320e-9` for confidence interval bounds,
+  and `2.124e-9` for p-values. These are floating-point differences, not
+  estimator or specification changes. M9 used 7,842 observations for every configured
+  outcome, with equivalent coefficients, standard errors, confidence intervals,
+  and p-values.
+- One regression invocation initially used a malformed temporary-config path
+  replacement and wrote its newly generated outputs to the configured target
+  directory. The previous 7,835-row target regression output was regenerated
+  from the unchanged prior target mobility artifact and restored. The corrected
+  7,842-row regression verification is in
+  `/tmp/opencode/equivalent_pipeline/regression_corrected/`; mobility outputs
+  are in `/tmp/opencode/equivalent_pipeline/mobility/`, and disambiguation
+  outputs are in `/tmp/opencode/disambiguation_equivalence/target_projected/`.
+  No original-repository files were written, and no commit was created.
+
+## Name-disambiguation equivalence remediation
+
+- Controlled source/target execution found that the migrated workflow passed every
+  column from the article parquet into evidence indexing, while the source loader
+  projects to its declared article-evidence column list. Unprojected funding and
+  other metadata columns were therefore interpreted as additional grant evidence,
+  changing pair scores and researcher selections. The migrated workflow now applies
+  the source projection before validating the article-evidence contract; unknown
+  parquet fields remain ignored as in the source. Researcher metadata and the
+  name-matching output contract are not altered by this correction.
+- The observed affiliation float/integer representation difference is normalized
+  by affiliation-ID extraction to the same identifier string. It was not the cause
+  of the decision differences; no blanket float coercion was added.
+- With `PYTHONHASHSEED=0`, equal worker counts, the same matcher artifact, and the
+  same article/reference paths, complete-data source/target outputs matched exactly:
+  32,953 selections, 13,847 pair decisions, 40,371 cluster rows, and 7,876 final
+  selection-score rows. Composite researcher/pair/author/cluster keys matched, and
+  every output column had zero differences, including selected IDs, statuses,
+  scores, confidence, labels, histories, and ASJC-derived fields.
+- `gender_given_tokens` consumes a set returned by `given_tokens`, so Python hash
+  randomization can change which name token is examined first. Unseeded independent
+  runs consequently showed a small number of differing pair and selection results.
+  The equivalence claim is therefore for controlled executions using the same
+  `PYTHONHASHSEED`; the source pipeline does not enforce a seed. This existing
+  nondeterminism is documented rather than hidden by altering the original.
+
 ## Scope
 
 The source project is `name-matching-playground`, managed with Poetry. The target is this repository, `academic-inbreeding`. Migration is incremental: dependency/build setup comes first; application code and tests are not part of Phase 1.

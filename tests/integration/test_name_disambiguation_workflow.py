@@ -2,6 +2,7 @@
 
 """End-to-end coverage for the configured name-disambiguation workflow."""
 
+from ast import literal_eval
 from pathlib import Path
 
 import pandas as pd
@@ -45,6 +46,9 @@ def test_workflow_reads_matcher_and_publication_inputs_and_writes_all_outputs(
                 "name_variants": "[]",
                 "subject_areas": '[{"area":"Software","code":1712}]',
                 "orcid": "0000-0001-2345-6789",
+                "person_email": "researcher@example.org",
+                "inferred_asjc_codes": "[]",
+                "organization": "Wirtschaft",
                 "affiliation_id": 60018163,
                 "affiliation_id_parent": parent_id,
                 "person_title": "Prof.",
@@ -80,6 +84,11 @@ def test_workflow_reads_matcher_and_publication_inputs_and_writes_all_outputs(
     pair_decisions = pd.read_csv(outputs.pair_decisions)
     clusters = pd.read_csv(outputs.clusters)
     assert pair_decisions[DECISION_LABEL].tolist() == ["same_author"]
+    components = literal_eval(pair_decisions.iloc[0]["components"])
+    component_labels = {component["label"] for component in components}
+    assert "email_exact" not in component_labels
+    assert "orcid_match" not in component_labels
+    assert selections.iloc[0]["inferred_asjc_codes"] == [1400]
     assert clusters[DISAMBIGUATED_CLUSTER_ID].nunique() == 1
     assert clusters[AUTHOR_ID].astype(str).tolist() == ["10", "20"]
     assert all(path.is_file() and path.stat().st_size > 0 for path in outputs.all_paths())

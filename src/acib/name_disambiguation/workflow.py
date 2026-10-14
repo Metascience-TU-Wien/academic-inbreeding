@@ -11,16 +11,25 @@ from pathlib import Path
 import pandas as pd
 
 from acib.name_disambiguation.config import NameDisambiguationConfig
+from acib.name_disambiguation.constants import (
+    ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS,
+    ARTICLE_REFERENCE_INPUT_COLUMNS,
+    ORCID,
+)
 from acib.name_disambiguation.data import prepare_disambiguation_author_frame
 from acib.name_disambiguation.output import write_all_outputs
 from acib.name_disambiguation.reporting import render_text_report
 from acib.name_disambiguation.service import disambiguate_batches
+from acib.name_matching.constants import MATCH_PRIORITY
+from acib.name_matching.workflow import add_inferred_asjc_columns
 from acib.schemas.authors import DisambiguationAuthorSchema
 from acib.schemas.matching import MatchingOutputSchema
 from acib.schemas.publications import (
     ArticleAuthorEvidenceSchema,
     ArticleReferenceSchema,
 )
+
+_RESEARCHER_EMAIL_COLUMN = "person_email"
 
 
 def validate_matching_artifact(path: str | Path) -> pd.DataFrame:
@@ -58,6 +67,27 @@ def read_dataframe(path: Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported input format for {path}; expected CSV or Parquet")
 
 
+def prepare_scoring_author_frame(matching: pd.DataFrame) -> pd.DataFrame:
+    """Build the legacy-compatible scientific evidence view of matcher rows.
+
+    The matching artifact retains corrected researcher metadata. The original
+    matcher only carried researcher email on pre-resolved rows, omitted ORCID,
+    and inferred missing ASJC codes from organization fields before matching.
+    Apply those evidence semantics to a copy so the canonical matcher artifact
+    remains unchanged.
+
+    :param matching: Validated matcher-output rows, including preserved metadata.
+    :return: A scoring frame with source-compatible researcher evidence.
+    """
+    evidence = add_inferred_asjc_columns(matching)
+    if MATCH_PRIORITY in evidence and _RESEARCHER_EMAIL_COLUMN in evidence:
+        matched_rows = evidence[MATCH_PRIORITY].ne(0)
+        evidence.loc[matched_rows, _RESEARCHER_EMAIL_COLUMN] = ""
+    if ORCID in evidence:
+        evidence[ORCID] = ""
+    return evidence
+
+
 def run_name_disambiguation(
     config: NameDisambiguationConfig,
     *,
@@ -76,15 +106,30 @@ def run_name_disambiguation(
     config.check_external_inputs_exist()
 
     matching = validate_matching_artifact(config.matching_output)
-    authors = prepare_disambiguation_author_frame(matching)
+    scoring_frame = prepare_scoring_author_frame(matching)
+    authors = prepare_disambiguation_author_frame(scoring_frame)
     authors = DisambiguationAuthorSchema.validate(authors, lazy=True)
 
-    article_authors = ArticleAuthorEvidenceSchema.validate(
-        read_dataframe(config.article_author_file_path), lazy=True
-    )
-    article_references = ArticleReferenceSchema.validate(
-        read_dataframe(config.article_reference_file_path), lazy=True
-    )
+    article_author_frame = read_dataframe(config.article_author_file_path)
+    article_author_frame = article_author_frame.loc[
+        :,
+        [
+            column
+            for column in ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS
+            if column in article_author_frame.columns
+        ],
+    ]
+    article_authors = ArticleAuthorEvidenceSchema.validate(article_author_frame, lazy=True)
+    article_reference_frame = read_dataframe(config.article_reference_file_path)
+    article_reference_frame = article_reference_frame.loc[
+        :,
+        [
+            column
+            for column in ARTICLE_REFERENCE_INPUT_COLUMNS
+            if column in article_reference_frame.columns
+        ],
+    ]
+    article_references = ArticleReferenceSchema.validate(article_reference_frame, lazy=True)
     batch_results = disambiguate_batches(
         authors,
         article_author_df=article_authors,
