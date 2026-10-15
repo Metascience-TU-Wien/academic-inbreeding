@@ -59,6 +59,62 @@ directory = "data/test-regression"
 
 
 @pytest.mark.parametrize(
+    ("outcome", "estimator", "outcome_type", "raises"),
+    [
+        ("share", "fractional_logit", "relative", None),
+        ("share", "huber", "relative", None),
+        ("count", "ppml", "absolute", None),
+        ("count", "fractional_logit", "absolute", ValueError),
+        ("share", "ppml", "relative", ValueError),
+    ],
+)
+def test_config_accepts_estimators_only_for_compatible_outcome_types(
+    tmp_path: Path,
+    outcome: str,
+    estimator: str,
+    outcome_type: str,
+    raises: type[Exception] | None,
+) -> None:
+    config_file = tmp_path / "pipeline.toml"
+    config_file.write_text(
+        f"""[data]
+article_author_file_path = "{tmp_path / 'articles.parquet'}"
+
+[mobility.outputs]
+directory = "data/test-mobility"
+
+[regression]
+rebuild_input = false
+
+[regression.dependent_variables]
+{outcome} = "{estimator}"
+
+[regression.outcome_metadata.{outcome}]
+outcome_type = "{outcome_type}"
+alias = "Test outcome"
+
+[regression.outputs]
+directory = "data/test-regression"
+""",
+        encoding="utf-8",
+    )
+
+    if raises is not None:
+        with pytest.raises(raises):
+            load_regression_config(config_file)
+        return
+
+    config = load_regression_config(config_file)
+    assert config.dependent_variables == {outcome: estimator}
+    assert config.outputs.robustness_model_coefficients == (
+        PROJECT_ROOT / "data/test-regression/robustness_model_coefficients.csv"
+    )
+    assert config.outputs.robustness_model_fit_statistics == (
+        PROJECT_ROOT / "data/test-regression/robustness_model_fit_statistics.csv"
+    )
+
+
+@pytest.mark.parametrize(
     "frame",
     [
         pd.DataFrame({"sc_id": [1, 1], "is_inbred": [False, True], "title": ["Full Prof."] * 2}),

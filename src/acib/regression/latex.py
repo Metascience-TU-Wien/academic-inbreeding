@@ -364,6 +364,36 @@ def model10_without_international_mobility_note(
     model_types: dict[str, str],
     outcome_aliases: Mapping[str, str] | None = None,
 ) -> str:
+    configured_models = (*relative_outcomes, *absolute_outcomes)
+    uses_requested_hc3_specification = model_types.get(N_PUBLIC) == "nbhc3" and all(
+        model_types.get(outcome, "ols") == "olshc3"
+        for outcome in configured_models
+        if outcome != N_PUBLIC
+    )
+    if uses_requested_hc3_specification:
+        return (
+            r"\textit{Notes.} Reported are the estimated coefficients for academic inbreeding, "
+            r"robust standard errors (Robust SE), and $p$-values ($P$) from the comprehensive "
+            r"specification excluding international mobility. The relative citation-impact "
+            r"indicators are the mean weighted percentile rank (mwPR) and the proportions of "
+            r"publications in the top 10\%, top 5\%, and top 1\% (PP(top 10\%), PP(top 5\%), "
+            r"and PP(top 1\%), respectively). Coefficients and standard errors for mwPR are "
+            r"reported in percentile points; those for the PP indicators are reported in "
+            r"percentage points. The absolute publication-output indicators are the total "
+            r"number of publications (Publications) and the fractionally counted numbers of "
+            r"publications in the top 10\%, top 5\%, and top 1\% (P(top 10\%), P(top 5\%), "
+            r"and P(top 1\%), respectively). Publications are modeled using negative binomial "
+            r"regression, with coefficients expressed on the log expected-count scale. All other "
+            r"outcomes are modeled using OLS, with coefficients expressed on their respective "
+            r"outcome scales. All models use HC3 heteroskedasticity-robust standard errors. OLS "
+            r"$p$-values are based on $t$-tests, whereas negative binomial regression $p$-values "
+            r"are based on $z$-tests. The specification adjusts for academic age, academic title, "
+            r"domestic mobility, co-affiliation publication share, mean number of coauthors per "
+            r"publication, first publication year, and fractional publication shares across 27 "
+            r"ASJC major fields, with Medicine as the reference field. Significance levels: "
+            r"$^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$."
+        )
+
     fractional_absolute_labels = join_labels(
         tuple(
             outcome_label(outcome, outcome_aliases)
@@ -371,51 +401,14 @@ def model10_without_international_mobility_note(
             if outcome != N_PUBLIC
         )
     )
-    has_publication_count = N_PUBLIC in absolute_outcomes
-    is_negative_binomial = model_types.get(N_PUBLIC) == "nb"
-    other_outcomes_are_ols = all(
-        model_types.get(outcome, "ols") in OLS_MODEL_TYPES
-        for outcome in (*relative_outcomes, *absolute_outcomes)
-        if outcome != N_PUBLIC
-    )
-    if has_publication_count and is_negative_binomial and other_outcomes_are_ols:
-        publication_model_note = (
-            "The number of publications is estimated using negative binomial regression and "
-            "its estimate is expressed on the log expected-count scale; all other outcomes "
-            "are estimated using OLS (with HC3-robust standard errors where configured)."
-        )
-    elif has_publication_count and is_negative_binomial:
-        publication_model_note = (
-            "The number of publications is estimated using negative binomial regression and "
-            "its estimate is expressed on the log expected-count scale; other outcomes use "
-            "their configured model families."
+    if N_PUBLIC in absolute_outcomes and model_types.get(N_PUBLIC) in {"nb", "nbhc3"}:
+        publication_note = (
+            "Publications are modeled using negative binomial regression, with coefficients "
+            "on the log expected-count scale. "
         )
     else:
-        publication_model_note = "Outcomes use their configured model families."
-    percentage_outcomes = [
-        outcome for outcome in relative_outcomes if outcome in {"pp_top_10", "pp_top_5", "pp_top_1"}
-    ]
-    has_mwpr = HAZEN_PERCENTILE in relative_outcomes
-    percentage_labels = join_labels(
-        tuple(outcome_label(outcome, outcome_aliases) for outcome in percentage_outcomes)
-    )
-    if has_mwpr and percentage_outcomes:
-        relative_note_sentence = (
-            r"Estimates and standard errors for mwPR are reported in percentile points; "
-            f"those for {percentage_labels} are reported in percentage points. "
-        )
-    elif has_mwpr:
-        relative_note_sentence = (
-            "Estimates and standard errors for mwPR are reported in percentile points. "
-        )
-    elif percentage_outcomes:
-        relative_note_sentence = (
-            f"Estimates and standard errors for {percentage_labels} are reported in "
-            "percentage points. "
-        )
-    else:
-        relative_note_sentence = ""
-    fractional_count_note = (
+        publication_note = "Outcomes use their configured model families. "
+    fractional_note = (
         f"{fractional_absolute_labels} are fractional publication counts. "
         if fractional_absolute_labels
         else ""
@@ -423,15 +416,10 @@ def model10_without_international_mobility_note(
     return (
         r"\textit{Notes.} Reported are the estimated associations between academic inbreeding "
         r"and each research-performance outcome from the full specification excluding "
-        r"international mobility. The specification adjusts for academic age, academic title, "
-        r"domestic mobility, coaffiliation publication share, mean number of coauthors per "
-        r"publication, first publication year, and fractional publication shares across 27 "
-        r"ASJC major fields. "
-        + relative_note_sentence
-        + fractional_count_note
-        + publication_model_note
-        + " "
-        r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$."
+        r"international mobility. "
+        + fractional_note
+        + publication_note
+        + r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$."
     )
 
 
@@ -685,14 +673,16 @@ def table_preamble(
         "research_performance" if performance_type == "relative" else "absolute_performance"
     )
     caption_suffix = (
-        "research performance" if performance_type == "relative" else "absolute performance"
+        "relative citation impact" if performance_type == "relative" else "absolute performance"
     )
+    estimate_format = "-2.2" if performance_type == "absolute" else "-1.2"
+    standard_error_format = "2.2" if performance_type == "absolute" else "1.2"
     columns = [
         value
         for _ in outcomes
         for value in (
-            "S[table-format=-1.2]",
-            "S[table-format=1.2]",
+            f"S[table-format={estimate_format}]",
+            f"S[table-format={standard_error_format}]",
             "S[table-format=1.2,table-space-text-post={***}]",
         )
     ]
@@ -739,7 +729,7 @@ def outcome_header(
         columns.extend(
             [
                 r"\multicolumn{1}{c}{\textbf{Coef.}}",
-                r"\multicolumn{1}{c}{\shortstack{\textbf{Std.}\\\textbf{err.}}}",
+                r"\multicolumn{1}{c}{\shortstack{\textbf{Robust}\\\textbf{SE}}}",
                 r"\multicolumn{1}{c}{\textbf{$P$}}",
             ]
         )
@@ -883,10 +873,10 @@ def observations_row(columns: list[LatexModelColumn]) -> str:
 
 
 def adjusted_r_squared_row(columns: list[LatexModelColumn]) -> str:
-    cells = [r"Adj.\ $R^2$"]
+    cells = [r"Adjusted $R^2$"]
     for column in columns:
         value = getattr(column.model.fit, "rsquared_adj", np.nan)
-        formatted = f"{float(value):.2f}" if np.isfinite(value) else r"\na"
+        formatted = f"{float(value):.2f}" if np.isfinite(value) else "---"
         cells.append(rf"\multicolumn{{3}}{{c}}{{{formatted}}}")
     return latex_row(cells)
 
@@ -915,6 +905,70 @@ def table_postamble(
         {outcome: (model_types or {}).get(outcome, "ols") for outcome in outcomes}
     )
     outcome_labels = ", ".join(outcome_label(outcome, outcome_aliases) for outcome in outcomes)
+    absolute_hc3_specification = (
+        performance_type == "absolute"
+        and (model_types or {}).get(N_PUBLIC) == "nbhc3"
+        and all(
+            (model_types or {}).get(outcome) == "olshc3"
+            for outcome in (ABSOLUTE_P_TOP_10, ABSOLUTE_P_TOP_5, ABSOLUTE_P_TOP_1)
+            if outcome in outcomes
+        )
+    )
+    if performance_type == "relative" and set((model_types or {}).values()) == {"olshc3"}:
+        notes = (
+            r"\textit{Notes.} Reported are coefficients (Coef.), robust standard errors "
+            r"(Robust SE), and $p$-values ($P$). The dependent variables are the mean "
+            r"weighted percentile rank (mwPR) and the proportions of publications in the "
+            r"top 10\%, top 5\%, and top 1\% (PP(top 10\%), PP(top 5\%), and "
+            r"PP(top 1\%), respectively). Coefficients and standard errors for mwPR are "
+            r"reported in percentile points; those for the PP indicators are reported in "
+            r"percentage points. Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, "
+            r"$^{***}p<0.001$. Academic-title abbreviations are defined in "
+            r"Table~\ref{tab:prof_titles}. Definitions and calculations of the "
+            r"analytical variables are provided in Table~\ref{tab:analytical_variables}. "
+            r"Full Prof.\ is the reference category for academic title. OLS $p$-values are "
+            r"based on $t$-tests; HC3 standard errors are heteroskedasticity-robust. ASJC "
+            r"field composition is represented by fractional publication shares across 27 "
+            r"ASJC major fields, with Medicine as the reference field because it has the "
+            r"largest overall publication share."
+        )
+    elif absolute_hc3_specification:
+        notes = (
+            r"\textit{Notes.} Reported are coefficients (Coef.), robust standard errors "
+            r"(Robust SE), and $p$-values ($P$). The dependent variables are the total "
+            r"number of publications (Publications) and the fractionally counted numbers "
+            r"of publications in the top 10\%, top 5\%, and top 1\% (P(top 10\%), "
+            r"P(top 5\%), and P(top 1\%), respectively). The total number of publications "
+            r"is modeled using negative binomial regression to account for overdispersion, "
+            r"with coefficients expressed on the log expected-count scale. The three "
+            r"P(top x\%) indicators are modeled using OLS, with coefficients expressed "
+            r"on the original outcome scale. All models use HC3 heteroskedasticity-robust "
+            r"standard errors. OLS $p$-values are based on $t$-tests, whereas negative "
+            r"binomial regression $p$-values are based on $z$-tests. Significance levels: "
+            r"$^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. Academic-title abbreviations "
+            r"are defined in Table~\ref{tab:prof_titles}. Definitions and calculations of "
+            r"the analytical variables are provided in Table~\ref{tab:analytical_variables}. "
+            r"Full Prof.\ is the reference category for academic title. ASJC field "
+            r"composition is represented by fractional publication shares across 27 ASJC "
+            r"major fields, with Medicine as the reference field because it has the largest "
+            rf"overall publication share. Coefficients shown are from Model~{model_number}."
+        )
+    else:
+        notes = (
+            r"\textit{Notes.} Reported are coefficients (Coef.), robust standard errors "
+            r"(Robust SE), and $p$-values ($P$). "
+            f"{outcome_note}Outcomes: {outcome_labels}. "
+            r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, "
+            r"$^{***}p<0.001$. Academic-title abbreviations are defined in "
+            r"Table~\ref{tab:prof_titles}. Definitions and calculations of the "
+            r"analytical variables are provided in Table~\ref{tab:analytical_variables}. "
+            r"Full Prof.\ is the reference category for academic "
+            f"title. {inference_note} "
+            r"ASJC field composition is represented by "
+            r"fractional publication shares across 27 ASJC major fields, with Medicine "
+            r"as the reference field because it has the largest overall publication share. "
+            f"Coefficients shown are from Model~{model_number}."
+        )
     return [
         "",
         r"\bottomrule",
@@ -925,18 +979,7 @@ def table_postamble(
         "",
         r"\begin{minipage}{\textwidth}",
         r"\footnotesize",
-        (
-            r"\textit{Notes.} Reported are coefficients (Coef.), standard errors "
-            r"(Std.\ err.), and $p$-values ($P$). "
-            f"{outcome_note}Outcomes: {outcome_labels}. "
-            r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, "
-            r"$^{***}p<0.001$. Full Prof.\ is the reference category for academic "
-            f"title. {inference_note} "
-            r"ASJC field composition is represented by "
-            r"fractional publication shares across 27 ASJC major fields, with Medicine "
-            r"as the reference field because it has the largest overall publication share. "
-            f"Coefficients shown are from Model~{model_number}."
-        ),
+        notes,
         r"\end{minipage}",
         "",
         r"\end{table}",
@@ -952,7 +995,7 @@ def absolute_performance_note(
     notes = []
     if N_PUBLIC in outcomes:
         count_model_type = model_types.get(N_PUBLIC, "ols")
-        if count_model_type == "nb":
+        if count_model_type in {"nb", "nbhc3"}:
             notes.append(
                 "The number of publications is estimated using negative binomial regression "
                 "because publication output is a non-negative count variable and exhibits "
@@ -1037,8 +1080,18 @@ def model_inference_note(model_types: dict[str, str]) -> str:
             )
         else:
             notes.append("OLS $p$-values are based on $t$-tests")
-    if model_families.intersection({"pr", "nb", "zinb"}):
+    if "nbhc3" in model_families:
+        notes.append(
+            "negative-binomial $p$-values are based on $z$-tests using HC3 standard errors"
+        )
+    elif "nb" in model_families:
+        notes.append("negative-binomial $p$-values are based on $z$-tests")
+    if model_families.intersection({"pr", "zinb"}):
         notes.append("count-model $p$-values are based on $z$-tests")
+    if "huber" in model_families:
+        notes.append("Huber RLM $p$-values are based on $z$-tests")
+    if model_families.intersection({"fractional_logit", "ppml"}):
+        notes.append("GLM $p$-values are based on $z$-tests")
     if not notes:
         return ""
     return "; ".join(notes) + "."
@@ -1059,7 +1112,7 @@ def format_coefficient_cells(coefficient: LatexCoefficient | None) -> list[str]:
 
 
 def format_p_value_cell(value: float) -> str:
-    formatted = "0.00" if value < 0.001 else f"{value:.3f}"
+    formatted = f"{value:.2f}"
     stars = significance_code(value)
     if stars == ".":
         stars = ""
@@ -1148,7 +1201,6 @@ def model_comparison_preamble(
         r"\providecommand{\coef}[3]{#1 & .#2\textsuperscript{#3}}",
         r"\providecommand{\coefn}[2]{#1 & .#2}",
         r"\providecommand{\se}[2]{(#1 & .#2)}",
-        r"\providecommand{\na}{\multicolumn{2}{c}{--}}",
         r"\providecommand{\txt}[1]{\multicolumn{2}{c}{#1}}",
         r"\providecommand{\fit}[1]{\multicolumn{2}{c}{\scriptsize #1}}",
         "",
@@ -1218,7 +1270,7 @@ def append_comparison_rows(
 
 def format_comparison_estimate(coefficient: LatexCoefficient | None) -> str:
     if coefficient is None:
-        return r"\na"
+        return r"\multicolumn{2}{c}{---}"
     stars = significance_code(coefficient.p_value)
     if stars == ".":
         stars = ""
@@ -1232,7 +1284,7 @@ def format_comparison_estimate(coefficient: LatexCoefficient | None) -> str:
 
 def format_comparison_std_error(coefficient: LatexCoefficient | None) -> str:
     if coefficient is None:
-        return r"\na"
+        return r"\multicolumn{2}{c}{---}"
     whole, decimal = split_decimal(coefficient.std_error)
     return rf"\se{{{whole}}}{{{decimal}}}"
 
@@ -1246,10 +1298,10 @@ def model_comparison_inclusion_row(label: str, columns: list[LatexModelColumn]) 
 
 
 def model_comparison_adjusted_r_squared_row(columns: list[LatexModelColumn]) -> str:
-    cells = [r"Adj.\ $R^2$"]
+    cells = [r"Adjusted $R^2$"]
     for column in columns:
         value = getattr(column.model.fit, "rsquared_adj", np.nan)
-        formatted = f"{float(value):.2f}" if np.isfinite(value) else r"\na"
+        formatted = f"{float(value):.2f}" if np.isfinite(value) else "---"
         cells.append(rf"\txt{{{formatted}}}")
     return model_comparison_row(cells)
 
@@ -1279,7 +1331,7 @@ def model_comparison_postamble(
     covariance_types = {
         str(getattr(column.model.fit, "cov_type", "nonrobust")) for column in columns
     }
-    if dependent_variable == N_PUBLIC and model_types == {"nb"}:
+    if dependent_variable == N_PUBLIC and model_types <= {"nb", "nbhc3"}:
         label = outcome_label(dependent_variable, outcome_aliases)
         outcome_note = f"{label} coefficients are on the log expected-count scale."
     elif dependent_variable in ABSOLUTE_TOP_PERCENTILE_OUTCOMES:
@@ -1293,6 +1345,8 @@ def model_comparison_postamble(
         outcome_note = "Coefficients and standard errors are reported in percentage points."
     if len(covariance_types) == 1 and "nonrobust" in covariance_types:
         standard_error_note = "model-based standard errors in parentheses. "
+    elif covariance_types == {"HC3"}:
+        standard_error_note = "HC3 heteroskedasticity-robust standard errors in parentheses. "
     else:
         standard_error_note = "heteroskedasticity-robust standard errors in parentheses. "
     inference_note = model_inference_note(

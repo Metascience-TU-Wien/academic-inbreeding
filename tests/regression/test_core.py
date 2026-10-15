@@ -34,9 +34,14 @@ from acib.regression.latex import (
     model10_without_international_mobility_note,
     model_comparison_latex_table,
     model_inference_note,
+    outcome_header,
+    table_postamble,
+    table_preamble,
 )
 from acib.regression.models import (
     RegressionFitError,
+    _validate_glm_fit,
+    coefficient_rows_from_fit,
     fit_regression_model,
     fit_regression_models,
     mle_fit_diagnostics,
@@ -46,6 +51,7 @@ from acib.regression.models import (
 )
 from acib.regression.specs import RegressionModelSpec
 from acib.regression.suite import RegressionSuite
+from acib.regression.tables import best_models_by_metric
 
 
 def tiny_authors(ids: list[str]) -> pd.DataFrame:
@@ -444,7 +450,7 @@ def test_regression_suite_excludes_configured_titles() -> None:
     assert result.fit_statistics.loc[0, "n_obs"] == 4
 
 
-@pytest.mark.parametrize("family", ["ols", "olshc3", "pr", "nb", "zinb"])
+@pytest.mark.parametrize("family", ["ols", "olshc3", "pr", "nb", "nbhc3", "zinb"])
 def test_suite_fits_configured_model_families(family: str) -> None:
     rng = np.random.default_rng(2026)
     x = rng.normal(size=500)
@@ -469,7 +475,8 @@ def test_suite_fits_configured_model_families(family: str) -> None:
         assert "HC3 (heteroskedasticity-robust)" in fitted.summary_text
     if family == "zinb":
         assert fitted.fit.mle_retvals["converged"]
-    if family == "nb":
+    if family in {"nb", "nbhc3"}:
+        assert fitted.fit.cov_type == ("HC3" if family == "nbhc3" else "nonrobust")
         assert fitted.mle_diagnostics is not None
         assert fitted.mle_diagnostics["mle_alpha_start"] != pytest.approx(0.5)
         assert fitted.mle_diagnostics["mle_alpha_start"] != pytest.approx(
@@ -513,6 +520,29 @@ def test_mle_warning_policy_retains_diagnostic_failure() -> None:
     assert "gradient norm" in diagnostic["mle_failure_reasons"]
 
 
+def test_best_fit_table_allows_non_likelihood_estimators_without_aic_bic() -> None:
+    fit_statistics = pd.DataFrame(
+        {
+            "dependent_variable": ["outcome", "outcome"],
+            "model_id": ["m8", "m9"],
+            "aic": [np.nan, np.nan],
+            "bic": [np.nan, np.nan],
+        }
+    )
+
+    best = best_models_by_metric(fit_statistics, metric="AIC")
+
+    assert best.empty
+    assert list(best.columns) == [
+        "dependent_variable",
+        "model",
+        "AIC",
+        "BIC",
+        "AIC_rank",
+        "BIC_rank",
+    ]
+
+
 def test_poisson_pseudo_likelihood_accepts_fractional_counts() -> None:
     fit = fit_regression_model(
         model_type="pr",
@@ -520,6 +550,311 @@ def test_poisson_pseudo_likelihood_accepts_fractional_counts() -> None:
         data=pd.DataFrame({"count": [0.0, 0.5, 1.0, 1.5, 2.0, 0.0, 0.5, 1.0], "x": np.arange(8.0)}),
     )
     assert fit.nobs == 8
+
+
+def test_huber_regression_matches_statsmodels_reference_with_robust_covariance() -> None:
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+
+    x = np.linspace(-2.0, 2.0, 80)
+    y = 1.5 + 0.7 * x
+    y[-1] += 35.0
+    data = pd.DataFrame({"outcome": y, "x": x})
+
+    fitted = fit_regression_model(model_type="huber", formula="outcome ~ x", data=data)
+    expected = smf.rlm(formula="outcome ~ x", data=data, M=sm.robust.norms.HuberT()).fit()
+
+    assert type(fitted.model).__name__ == "RLM"
+    pd.testing.assert_series_equal(fitted.params, expected.params)
+    pd.testing.assert_series_equal(fitted.bse, expected.bse)
+    assert fitted.bse["x"] != pytest.approx(
+        fit_regression_model(model_type="ols", formula="outcome ~ x", data=data).bse["x"]
+    )
+
+
+def test_fractional_logit_matches_hc3_reference_and_rejects_out_of_range() -> None:
+    import statsmodels.api as sm
+    from patsy import dmatrices
+
+    x = np.linspace(-1.5, 1.5, 100)
+    y = 1.0 / (1.0 + np.exp(-(-0.4 + 0.9 * x))) + 0.01 * np.sin(x * 7)
+    data = pd.DataFrame({"share": y, "x": x})
+    fitted = fit_regression_model(model_type="fractional_logit", formula="share ~ x", data=data)
+    endog, exog = dmatrices("share ~ x", data, return_type="dataframe")
+    expected = sm.GLM(
+        endog.iloc[:, 0],
+        exog,
+        family=sm.families.Binomial(link=sm.families.links.Logit()),
+    ).fit(cov_type="HC3")
+
+    pd.testing.assert_series_equal(fitted.params, expected.params)
+    pd.testing.assert_series_equal(fitted.bse, expected.bse)
+    assert fitted.cov_type == "HC3"
+    rows = {row["term"]: row for row in coefficient_rows_from_fit(fitted, "share", "m1")}
+    for term in fitted.params.index:
+        assert rows[term]["conf_low"] == pytest.approx(expected.conf_int().loc[term, 0])
+        assert rows[term]["conf_high"] == pytest.approx(expected.conf_int().loc[term, 1])
+        assert rows[term]["p_value"] == pytest.approx(expected.pvalues[term])
+    with pytest.raises(ValueError, match=r"within \[0, 1\]"):
+        fit_regression_model(
+            model_type="fractional_logit",
+            formula="share ~ x",
+            data=pd.DataFrame({"share": [0.1, 0.3, 1.01, 0.7], "x": range(4)}),
+        )
+
+
+def test_ppml_matches_robust_poisson_reference_and_accepts_fractional_counts() -> None:
+    import statsmodels.api as sm
+    from patsy import dmatrices
+
+    x = np.linspace(-1.0, 1.0, 100)
+    y = np.exp(0.25 + 0.4 * x) + (np.arange(100) % 3) / 4
+    data = pd.DataFrame({"count": y, "x": x})
+    fitted = fit_regression_model(model_type="ppml", formula="count ~ x", data=data)
+    endog, exog = dmatrices("count ~ x", data, return_type="dataframe")
+    expected = sm.GLM(endog.iloc[:, 0], exog, family=sm.families.Poisson()).fit(cov_type="HC3")
+
+    pd.testing.assert_series_equal(fitted.params, expected.params)
+    pd.testing.assert_series_equal(fitted.bse, expected.bse)
+    assert fitted.cov_type == "HC3"
+    rows = {row["term"]: row for row in coefficient_rows_from_fit(fitted, "count", "m1")}
+    for term in fitted.params.index:
+        assert rows[term]["conf_low"] == pytest.approx(expected.conf_int().loc[term, 0])
+        assert rows[term]["conf_high"] == pytest.approx(expected.conf_int().loc[term, 1])
+        assert rows[term]["p_value"] == pytest.approx(expected.pvalues[term])
+    with pytest.raises(ValueError, match="nonnegative"):
+        fit_regression_model(
+            model_type="ppml",
+            formula="count ~ x",
+            data=pd.DataFrame({"count": [0.2, 0.5, -0.1, 1.0], "x": range(4)}),
+        )
+
+
+@pytest.mark.parametrize(
+    ("converged", "parameters", "covariance", "fitted_values"),
+    [
+        (False, [1.0], [[1.0]], [1.0]),
+        (True, [np.inf], [[1.0]], [1.0]),
+        (True, [1.0], [[np.nan]], [1.0]),
+        (True, [1.0], [[1.0]], [np.inf]),
+    ],
+)
+def test_ppml_numerical_diagnostics_reject_invalid_glm_fits(
+    converged: bool,
+    parameters: list[float],
+    covariance: list[list[float]],
+    fitted_values: list[float],
+) -> None:
+    fit = SimpleNamespace(
+        converged=converged,
+        params=np.asarray(parameters),
+        cov_params=lambda: np.asarray(covariance),
+        fittedvalues=np.asarray(fitted_values),
+    )
+    with pytest.raises(RegressionFitError, match="ppml"):
+        _validate_glm_fit(fit, "ppml")
+
+
+@pytest.mark.parametrize("family", ("huber", "fractional_logit", "ppml"))
+def test_alternative_estimators_keep_the_ols_sample_and_scale_mwpr(family: str) -> None:
+    rng = np.random.default_rng(9812)
+    n = 100
+    age = rng.normal(size=n)
+    outcome = 52.0 + age * 4 + rng.normal(size=n)
+    outcome[[5, 22]] = np.nan
+    age[7] = np.nan
+    data = pd.DataFrame({"hazen_perc_med": outcome, "academic_age": age})
+    spec = (RegressionModelSpec("m1", ("academic_age",)),)
+
+    ols = (
+        RegressionSuite(
+            data=data,
+            config=RegressionSuiteConfig(
+                dependent_variables=("hazen_perc_med",),
+                model_specs=spec,
+                model_types={"hazen_perc_med": "ols"},
+                exclude_titles=(),
+            ),
+        )
+        .fit()
+        .models[("hazen_perc_med", "m1")]
+    )
+    alternative = (
+        RegressionSuite(
+            data=data,
+            config=RegressionSuiteConfig(
+                dependent_variables=("hazen_perc_med",),
+                model_specs=spec,
+                model_types={"hazen_perc_med": family},
+                exclude_titles=(),
+            ),
+        )
+        .fit()
+        .models[("hazen_perc_med", "m1")]
+    )
+
+    assert alternative.model_data.index.tolist() == ols.model_data.index.tolist()
+    expected_outcome = ols.model_data["hazen_perc_med"]
+    if family == "fractional_logit":
+        expected_outcome = expected_outcome / 100.0
+    np.testing.assert_allclose(alternative.model_data["hazen_perc_med"], expected_outcome)
+
+
+@pytest.mark.parametrize(
+    ("family", "outcome_column"),
+    (("fractional_logit", "share"), ("ppml", "count")),
+)
+def test_glm_ame_and_delta_method_match_independent_calculation(
+    family: str, outcome_column: str
+) -> None:
+    from patsy import build_design_matrices
+    from scipy import stats
+
+    rng = np.random.default_rng(472)
+    n = 180
+    age = rng.normal(size=n)
+    inbred = np.arange(n) % 2 == 0
+    probability = 1 / (1 + np.exp(-(-0.8 + 0.3 * age + 0.65 * inbred)))
+    fractional_outcome = np.clip(probability + rng.normal(scale=0.025, size=n), 0.01, 0.99)
+    count_outcome = rng.poisson(np.exp(-0.2 + 0.25 * age + 0.45 * inbred))
+    outcome = fractional_outcome if family == "fractional_logit" else count_outcome
+    data = pd.DataFrame({outcome_column: outcome, "academic_age": age, "is_inbred": inbred})
+    fitted = (
+        RegressionSuite(
+            data=data,
+            config=RegressionSuiteConfig(
+                dependent_variables=(outcome_column,),
+                model_specs=(RegressionModelSpec("m1", ("academic_age", "C(is_inbred)")),),
+                model_types={outcome_column: family},
+                exclude_titles=(),
+            ),
+        )
+        .fit()
+        .models[(outcome_column, "m1")]
+    )
+
+    design_info = fitted.fit.model._acib_design_info
+    scenarios = []
+    for value in (False, True):
+        frame = fitted.model_data.copy()
+        frame["is_inbred"] = value
+        scenarios.append(np.asarray(build_design_matrices([design_info], frame)[0], dtype=float))
+    params = np.asarray(fitted.fit.params, dtype=float)
+
+    def contrast(beta: np.ndarray) -> float:
+        predicted_inbred = fitted.fit.model.predict(beta, exog=scenarios[1])
+        predicted_not_inbred = fitted.fit.model.predict(beta, exog=scenarios[0])
+        return float(np.mean(predicted_inbred - predicted_not_inbred))
+
+    estimate = contrast(params)
+    step_size = 1e-5
+    gradient = np.empty_like(params)
+    for index in range(len(params)):
+        upper, lower = params.copy(), params.copy()
+        upper[index] += step_size
+        lower[index] -= step_size
+        gradient[index] = (contrast(upper) - contrast(lower)) / (2 * step_size)
+    standard_error = float(np.sqrt(gradient @ np.asarray(fitted.fit.cov_params()) @ gradient))
+    z_value = estimate / standard_error
+    ame = fitted.coefficients.query("term == 'AME[is_inbred]'").iloc[0]
+
+    assert ame.estimate == pytest.approx(estimate, rel=1e-7)
+    assert ame.std_error == pytest.approx(standard_error, rel=1e-5)
+    assert ame.p_value == pytest.approx(2 * stats.norm.sf(abs(z_value)), rel=1e-5)
+    assert ame.conf_low == pytest.approx(estimate - stats.norm.ppf(0.975) * standard_error)
+    assert ame.conf_high == pytest.approx(estimate + stats.norm.ppf(0.975) * standard_error)
+
+
+def test_fractional_logit_mwpr_marginal_effect_uses_percentage_scale() -> None:
+    from patsy import build_design_matrices
+
+    rng = np.random.default_rng(704)
+    n = 120
+    age = rng.normal(size=n)
+    inbred = np.arange(n) % 2 == 0
+    share = 1 / (1 + np.exp(-(-0.7 + 0.2 * age + 0.4 * inbred)))
+    data = pd.DataFrame(
+        {
+            "hazen_perc_med": (share + rng.normal(scale=0.015, size=n)) * 100,
+            "academic_age": age,
+            "is_inbred": inbred,
+        }
+    )
+    fitted = (
+        RegressionSuite(
+            data=data,
+            config=RegressionSuiteConfig(
+                dependent_variables=("hazen_perc_med",),
+                model_specs=(RegressionModelSpec("m1", ("academic_age", "C(is_inbred)")),),
+                model_types={"hazen_perc_med": "fractional_logit"},
+                exclude_titles=(),
+            ),
+        )
+        .fit()
+        .models[("hazen_perc_med", "m1")]
+    )
+    ame = fitted.coefficients.query("term == 'AME[is_inbred]'").iloc[0]
+    scenarios = []
+    for value in (False, True):
+        frame = fitted.model_data.copy()
+        frame["is_inbred"] = value
+        scenarios.append(
+            np.asarray(
+                build_design_matrices([fitted.fit.model._acib_design_info], frame)[0],
+                dtype=float,
+            )
+        )
+    predictions = [fitted.fit.model.predict(fitted.fit.params, exog=x) for x in scenarios]
+    expected_percentage_point_change = 100 * float(np.mean(predictions[1] - predictions[0]))
+    assert ame.estimate == pytest.approx(expected_percentage_point_change)
+    assert 0 < abs(ame.estimate) < 100
+
+
+def test_ols_hc3_and_alternative_results_write_to_separate_files(tmp_path: Path) -> None:
+    from acib.regression.config import RegressionOutputs
+
+    rng = np.random.default_rng(143)
+    n = 100
+    x = rng.normal(size=n)
+    inbred = np.arange(n) % 2 == 0
+    data = pd.DataFrame(
+        {
+            "share": 1.0 / (1.0 + np.exp(-(-0.6 + 0.4 * x + 0.3 * inbred)))
+            + rng.normal(scale=0.01, size=n),
+            "count": rng.poisson(np.exp(0.3 + 0.2 * x + 0.25 * inbred)),
+            "x": x,
+            "is_inbred": inbred,
+        }
+    )
+    result = RegressionSuite(
+        data=data,
+        config=RegressionSuiteConfig(
+            dependent_variables=("share", "count"),
+            model_specs=(RegressionModelSpec("m1", ("x", "C(is_inbred)")),),
+            model_types={"share": "olshc3", "count": "ppml"},
+            relative_performance_outcomes=("share",),
+            absolute_performance_outcomes=("count",),
+            outcome_aliases={"share": "Share", "count": "Count"},
+            exclude_titles=(),
+        ),
+    ).fit()
+    expected_hc3 = result.models[("share", "m1")].fit.bse["x"]
+    outputs = RegressionOutputs(directory=tmp_path)
+
+    result.write(outputs, data=data)
+
+    ols_coefficients = pd.read_csv(outputs.model_coefficients)
+    robustness_coefficients = pd.read_csv(outputs.robustness_model_coefficients)
+    ols_fit_statistics = pd.read_csv(outputs.model_fit_statistics)
+    robustness_fit_statistics = pd.read_csv(outputs.robustness_model_fit_statistics)
+    assert set(ols_coefficients["model_type"]) == {"olshc3"}
+    assert set(robustness_coefficients["model_type"]) == {"ppml"}
+    assert set(ols_fit_statistics["model_type"]) == {"olshc3"}
+    assert set(robustness_fit_statistics["model_type"]) == {"ppml"}
+    assert robustness_coefficients["term"].str.startswith("AME[").any()
+    assert ols_coefficients.loc[ols_coefficients.term == "x", "std_error"].iloc[0] == pytest.approx(
+        expected_hc3
+    )
 
 
 def test_olshc3_uses_hc3_standard_errors_without_changing_ols_coefficients() -> None:
@@ -543,15 +878,69 @@ def test_olshc3_uses_hc3_standard_errors_without_changing_ols_coefficients() -> 
 
 def test_latex_significance_and_model_inference_keep_model_family_semantics() -> None:
     assert format_p_value_cell(0.00001) == r"0.00\textsuperscript{***}"
-    assert format_p_value_cell(0.032519) == r"0.033\textsuperscript{*}"
-    assert format_p_value_cell(0.069892) == "0.070"
+    assert format_p_value_cell(0.032519) == r"0.03\textsuperscript{*}"
+    assert format_p_value_cell(0.069892) == "0.07"
     assert model_inference_note({"n_public": "nb", "P_top10": "ols"}) == (
-        "OLS $p$-values are based on $t$-tests; count-model $p$-values are based on $z$-tests."
+        "OLS $p$-values are based on $t$-tests; negative-binomial $p$-values are based on "
+        "$z$-tests."
     )
     assert model_inference_note({"pp_top_10": "olshc3"}) == (
         "OLS $p$-values are based on $t$-tests; HC3 standard errors are "
         "heteroskedasticity-robust."
     )
+    assert model_inference_note({"pp_top_10": "fractional_logit"}) == (
+        "GLM $p$-values are based on $z$-tests."
+    )
+    assert model_inference_note({"n_public": "nb"}) == (
+        "negative-binomial $p$-values are based on $z$-tests."
+    )
+    assert model_inference_note({"n_public": "nbhc3"}) == (
+        "negative-binomial $p$-values are based on $z$-tests using HC3 standard errors."
+    )
+
+
+def test_latex_performance_template_uses_requested_captions_and_robust_se_header() -> None:
+    relative = table_preamble(
+        model_id="m9",
+        outcomes=("hazen_perc_med", "pp_top_10", "pp_top_5", "pp_top_1"),
+    )
+    absolute = table_preamble(
+        model_id="m9",
+        outcomes=("n_public", "P_top10", "P_top5", "P_top1"),
+        performance_type="absolute",
+    )
+    header = outcome_header(("hazen_perc_med",))
+
+    assert (
+        r"\caption{Association between academic inbreeding and relative citation impact}"
+        in "\n".join(relative)
+    )
+    assert (
+        r"\caption{Association between academic inbreeding and absolute performance}"
+        in "\n".join(absolute)
+    )
+    assert "S[table-format=-2.2]" in absolute
+    assert "S[table-format=2.2]" in absolute
+    assert r"\textbf{Robust}" in "\n".join(header)
+
+
+def test_absolute_hc3_template_uses_requested_note() -> None:
+    postamble = table_postamble(
+        model_id="m9",
+        outcomes=("n_public", "P_top10", "P_top5", "P_top1"),
+        performance_type="absolute",
+        model_types={
+            "n_public": "nbhc3",
+            "P_top10": "olshc3",
+            "P_top5": "olshc3",
+            "P_top1": "olshc3",
+        },
+    )
+    note = "\n".join(postamble)
+
+    assert "The total number of publications is modeled using negative binomial regression" in note
+    assert "All models use HC3 heteroskedasticity-robust standard errors." in note
+    assert "Coefficients shown are from Model~9." in note
 
 
 def test_regression_suite_sorts_printed_models_in_specification_order(
@@ -638,11 +1027,23 @@ def test_model10_note_describes_negative_binomial_count_model() -> None:
     note = model10_without_international_mobility_note(
         relative_outcomes=("hazen_perc_med", "pp_top_10", "pp_top_5", "pp_top_1"),
         absolute_outcomes=("n_public", "P_top10", "P_top5", "P_top1"),
-        model_types={"n_public": "nb"},
+        model_types={
+            "n_public": "nbhc3",
+            "hazen_perc_med": "olshc3",
+            "pp_top_10": "olshc3",
+            "pp_top_5": "olshc3",
+            "pp_top_1": "olshc3",
+            "P_top10": "olshc3",
+            "P_top5": "olshc3",
+            "P_top1": "olshc3",
+        },
     )
-    assert "negative binomial regression" in note
-    assert "log expected-count scale" in note
-    assert "fractional publication counts" in note
+    assert (
+        "negative binomial regression, with coefficients expressed on the log expected-count scale"
+        in note
+    )
+    assert "fractionally counted numbers of publications" in note
+    assert "All models use HC3 heteroskedasticity-robust standard errors" in note
 
 
 def test_pipeline_settings_conversion_keeps_model_families_and_inflation_formula(
@@ -798,7 +1199,7 @@ def test_ols_estimates_match_original_implementation() -> None:
 
 
 def test_model_comparison_outcome_families_have_distinct_inference_notes() -> None:
-    assert "count-model $p$-values are based on $z$-tests" in model_inference_note(
+    assert "negative-binomial $p$-values are based on $z$-tests" in model_inference_note(
         {"n_public": "nb"}
     )
     assert "OLS $p$-values are based on $t$-tests" in model_inference_note({"pp_top_10": "ols"})
@@ -844,7 +1245,10 @@ def test_model9_latex_table_preserves_full_professor_and_field_reference_asserti
     ).fit()
     table = result.model_9_latex_table
     assert table.startswith(r"\begin{table}[htbp]")
-    assert r"\caption{Association between academic inbreeding and research performance}" in table
+    assert (
+        r"\caption{Association between academic inbreeding and relative citation impact}" in table
+    )
+    assert r"\textbf{Robust}\\\textbf{SE}" in table
     assert r"Academic title (ref.: Full Prof.)" in table
     assert r"\quad Ao.\ Prof." in table
     assert r"ASJC field shares" in table
@@ -895,7 +1299,7 @@ def test_source_model10_full_specification_table_and_note_are_renderable() -> No
             exclude_titles=(),
         ),
     ).fit()
-    table = result.latex_tables["model10_without_international_mobility.tex"]
+    table = result.latex_tables["performance_without_international_mobility.tex"]
     assert r"\label{tab:without_international_mobility}" in table
     assert r"\textbf{Relative citation impact}" in table
     assert r"\textbf{Absolute publication output}" in table
@@ -953,13 +1357,13 @@ def test_source_model_comparison_tables_keep_all_specification_assertions() -> N
     assert r"Acad.\ age$^2$" in table
     assert "Total mobility" in table
     assert r"Co-affil.\ pub.\ share" in table
-    assert r"\na" in table
+    assert r"\multicolumn{2}{c}{---}" in table
     assert table.count(r"\txt{Yes}") == 3
     first = result.models[("pp_top_1", "m1")]
     assert f"AIC & \\fit{{{float(first.fit_statistics['aic']):,.0f}}}" in table
     assert f"BIC & \\fit{{{float(first.fit_statistics['bic']):,.0f}}}" in table
     assert "\nObservations" not in table
-    assert table.index("AIC") > table.index(r"Adj.\ $R^2$")
+    assert table.index("AIC") > table.index(r"Adjusted $R^2$")
     assert table.index("BIC") > table.index("AIC")
     assert rf"$N={int(first.fit.nobs):,}$ in all models." in table
     assert "Coefficients and standard errors are reported in percentage points." in table
@@ -972,7 +1376,7 @@ def test_source_model_comparison_tables_keep_all_specification_assertions() -> N
     assert "Inbreeding" in count_table
     assert "Domestic mobility" in count_table
     assert "First pub.\\ year" in count_table
-    assert "Adj." in count_table
+    assert r"Adjusted $R^2$" in count_table
     robustness = result.latex_tables["model9_absolute_top_percentile_robustness.tex"]
     assert "fractional counts of top-cited publications (Model 9)" in robustness
     assert r"P(top 10\%)" in robustness
@@ -1013,7 +1417,7 @@ def test_n_public_negative_binomial_comparison_uses_full_rows_without_adjusted_r
     assert "Inbreeding" in table
     assert r"Acad.\ age" in table
     assert "AIC" in table and "BIC" in table
-    assert "Adj." not in table
+    assert r"Adjusted $R^2$" not in table
     assert "Publications coefficients are on the log expected-count scale" in table
     assert "model-based standard errors in parentheses" in table
-    assert "count-model $p$-values are based on $z$-tests" in table
+    assert "negative-binomial $p$-values are based on $z$-tests" in table

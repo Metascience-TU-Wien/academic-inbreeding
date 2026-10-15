@@ -238,7 +238,7 @@ def test_model10_full_specification_latex_is_written_to_configured_directory(
             exclude_titles=(),
         ),
     ).fit()
-    table = result.latex_tables["model10_without_international_mobility.tex"]
+    table = result.latex_tables["performance_without_international_mobility.tex"]
     assert r"\label{tab:without_international_mobility}" in table
     assert r"\textbf{Relative citation impact}" in table
     assert r"\textbf{Absolute publication output}" in table
@@ -246,7 +246,7 @@ def test_model10_full_specification_latex_is_written_to_configured_directory(
 
     outputs = outputs_under(tmp_path)
     result.write(outputs, data=data)
-    assert (outputs.latex_dir / "model10_without_international_mobility.tex").is_file()
+    assert (outputs.latex_dir / "performance_without_international_mobility.tex").is_file()
 
 
 def test_model9_writer_ignores_unrelated_nb_fit_and_writes_plot(tmp_path: Path) -> None:

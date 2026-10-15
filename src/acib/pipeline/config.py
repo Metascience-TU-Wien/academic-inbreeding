@@ -580,6 +580,14 @@ def load_regression_config(path: str | Path) -> RegressionConfig:
             "Missing [regression.outcome_metadata] for dependent variables: "
             + ", ".join(sorted(missing_metadata))
         )
+    for outcome, family in dependent_variables.items():
+        outcome_type = outcome_metadata[outcome].outcome_type
+        if family == "fractional_logit" and outcome_type != "relative":
+            raise ValueError(
+                f"Fractional logit requires a relative outcome; {outcome!r} is {outcome_type!r}"
+            )
+        if family == "ppml" and outcome_type != "absolute":
+            raise ValueError(f"PPML requires an absolute outcome; {outcome!r} is {outcome_type!r}")
     model_specs = _load_regression_model_specs(section)
     inflation_formulas = section.get("zinb_inflation_formulas", {})
     if not isinstance(inflation_formulas, dict) or any(
@@ -666,7 +674,17 @@ def _load_regression_dependent_variables(
         for outcome, model in values.items()
     ):
         raise TypeError("regression.dependent_variables must map outcomes to model families")
-    allowed = {"ols", "olshc3", "pr", "nb", "zinb"}
+    allowed = {
+        "ols",
+        "olshc3",
+        "pr",
+        "nb",
+        "nbhc3",
+        "zinb",
+        "huber",
+        "fractional_logit",
+        "ppml",
+    }
     invalid = {model for model in values.values() if model not in allowed}
     if invalid:
         raise ValueError("Unsupported regression model family: " + ", ".join(sorted(invalid)))

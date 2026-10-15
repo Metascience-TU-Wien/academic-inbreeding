@@ -10,7 +10,11 @@ import pandas as pd
 import structlog
 from scipy import stats
 
-from acib.regression.config import RegressionOutputs, is_ols_model_type
+from acib.regression.config import (
+    NEGATIVE_BINOMIAL_MODEL_TYPES,
+    RegressionOutputs,
+    is_ols_model_type,
+)
 from acib.regression.constants import (
     DEFAULT_REGRESSION_DEPENDENT_VARIABLES,
 )
@@ -100,7 +104,7 @@ def fit_regression_models(
                 mle_gradient_tolerance=mle_gradient_tolerance,
             )
             diagnostics = {}
-            if outcome_model_type in {"nb", "zinb"}:
+            if outcome_model_type in {*NEGATIVE_BINOMIAL_MODEL_TYPES, "zinb"}:
                 diagnostics = validate_mle_fit(
                     fit,
                     model_id=spec.model_id,
@@ -165,7 +169,7 @@ def fit_regression_model(
     zinb_dispersion_power: int = 2,
     mle_gradient_tolerance: float = 1e-4,
 ) -> Any:
-    """Fit one configured OLS, Poisson, NB, or ZINB model.
+    """Fit one configured linear, robust, fractional, or count regression model.
 
     NB fits retain the original BFGS-then-Newton candidate ordering and
     diagnostics-based candidate selection. ZINB starts are initialized from
@@ -186,12 +190,18 @@ def fit_regression_model(
     :raises RuntimeError: If both NB optimizers fail to produce a candidate.
     """
     smf = import_statsmodels_formula_api()
+    if model_type == "huber":
+        import statsmodels.api as sm
+
+        return smf.rlm(formula=formula, data=data, M=sm.robust.norms.HuberT()).fit()
     if is_ols_model_type(model_type):
         ols_covariance_type = "HC3" if model_type == "olshc3" else covariance_type
         fit_options = {"cov_type": ols_covariance_type} if ols_covariance_type else {}
         return smf.ols(formula=formula, data=data).fit(**fit_options)
+    if model_type == "nbhc3":
+        covariance_type = "HC3"
     fit_options = {"cov_type": covariance_type} if covariance_type else {}
-    if model_type not in {"pr", "nb", "zinb"}:
+    if model_type not in {"pr", *NEGATIVE_BINOMIAL_MODEL_TYPES, "zinb", "fractional_logit", "ppml"}:
         raise ValueError(f"Unsupported regression model type: {model_type!r}")
 
     import statsmodels.api as sm
@@ -201,7 +211,11 @@ def fit_regression_model(
     first_year_center = np.nan
     rhs = formula.split("~", maxsplit=1)[1]
     rhs_terms = [term.strip() for term in rhs.split("+")]
-    if model_type == "nb" and "first_year" in rhs_terms and "first_year" in data:
+    if (
+        model_type in NEGATIVE_BINOMIAL_MODEL_TYPES
+        and "first_year" in rhs_terms
+        and "first_year" in data
+    ):
         fit_data = data.copy()
         first_year = pd.to_numeric(fit_data["first_year"], errors="coerce")
         first_year_center = float(first_year.mean())
@@ -211,12 +225,31 @@ def fit_regression_model(
 
     endog_frame, exog_frame = dmatrices(formula, data=fit_data, return_type="dataframe")
     endog = endog_frame.iloc[:, 0]
-    if model_type == "pr":
-        return sm.GLM(endog, exog_frame, family=sm.families.Poisson()).fit(**fit_options)
+    if model_type in {"pr", "ppml"}:
+        if model_type == "ppml" and (endog < 0).any():
+            raise ValueError("PPML outcomes must be nonnegative")
+        poisson_covariance = covariance_type or ("HC3" if model_type == "ppml" else None)
+        poisson_options = {"cov_type": poisson_covariance} if poisson_covariance else {}
+        fit = sm.GLM(endog, exog_frame, family=sm.families.Poisson()).fit(**poisson_options)
+        if model_type == "ppml":
+            fit.model._acib_design_info = exog_frame.design_info
+            _validate_glm_fit(fit, model_type)
+        return fit
+    if model_type == "fractional_logit":
+        if not endog.between(0, 1).all():
+            raise ValueError("Fractional-logit outcomes must be within [0, 1]")
+        fit = sm.GLM(
+            endog,
+            exog_frame,
+            family=sm.families.Binomial(link=sm.families.links.Logit()),
+        ).fit(cov_type=covariance_type or "HC3")
+        fit.model._acib_design_info = exog_frame.design_info
+        _validate_glm_fit(fit, model_type)
+        return fit
 
     from statsmodels.discrete.discrete_model import NegativeBinomial
 
-    if model_type == "nb":
+    if model_type in NEGATIVE_BINOMIAL_MODEL_TYPES:
         candidates = []
         errors: list[str] = []
         for method in ("bfgs", "newton"):
@@ -305,6 +338,26 @@ def fit_regression_model(
     fit._nmp_optimizer = zinb_fit_method
     fit._nmp_alpha_start = alpha_start
     return fit
+
+
+def _validate_glm_fit(fit: Any, model_type: str) -> None:
+    """Reject non-converged or numerically invalid GLM results.
+
+    :param fit: Fitted GLM results.
+    :param model_type: Estimator identifier used in diagnostics.
+    :raises RegressionFitError: If convergence or finite-value checks fail.
+    """
+    parameters = np.asarray(fit.params, dtype=float)
+    covariance = np.asarray(fit.cov_params(), dtype=float)
+    if not bool(getattr(fit, "converged", True)):
+        raise RegressionFitError(f"{model_type} failed to converge")
+    fitted_values = np.asarray(fit.fittedvalues, dtype=float)
+    if (
+        not np.isfinite(parameters).all()
+        or not np.isfinite(covariance).all()
+        or not np.isfinite(fitted_values).all()
+    ):
+        raise RegressionFitError(f"{model_type} produced non-finite estimates or covariance")
 
 
 class RegressionFitError(RuntimeError):
@@ -552,12 +605,16 @@ def r_lm_bic(fit: Any) -> float:
 
 def fit_aic(fit: Any) -> float:
     """Return AIC using the source-compatible OLS parameter count."""
-    return r_lm_aic(fit) if hasattr(fit, "rsquared") else float(fit.aic)
+    if hasattr(fit, "rsquared"):
+        return r_lm_aic(fit)
+    return float(getattr(fit, "aic", np.nan))
 
 
 def fit_bic(fit: Any) -> float:
     """Return BIC using the source-compatible OLS parameter count."""
-    return r_lm_bic(fit) if hasattr(fit, "rsquared") else float(fit.bic)
+    if hasattr(fit, "rsquared"):
+        return r_lm_bic(fit)
+    return float(getattr(fit, "bic", np.nan))
 
 
 def log_regression_summary(

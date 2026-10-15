@@ -7,7 +7,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from patsy import build_design_matrices
+from scipy import stats
 
+from acib.constants import HAZEN_PERCENTILE, IS_INBRED
 from acib.regression.config import is_ols_model_type
 from acib.regression.models import (
     average_comparison_for_binary_indicator,
@@ -58,7 +61,69 @@ class FittedRegressionModel:
             coefficient_rows_from_fit(self.fit, self.dependent_variable, self.model_id)
         )
         result["model_type"] = self.model_type
+        if self.model_type in {"fractional_logit", "ppml"}:
+            result = pd.concat(
+                [result, pd.DataFrame([self.average_marginal_effect(IS_INBRED)])],
+                ignore_index=True,
+            )
         return result
+
+    def average_marginal_effect(self, variable: str) -> dict[str, Any]:
+        """Estimate the discrete average effect of a binary variable.
+
+        :param variable: Binary predictor varied in the prediction scenarios.
+        :return: Coefficient-table row with delta-method inference.
+        :raises ValueError: If the predictor is absent.
+        """
+        if variable not in self.model_data:
+            raise ValueError(f"Marginal-effect variable {variable!r} is absent")
+        scenarios = []
+        for value in (False, True):
+            frame = self.model_data.copy()
+            frame[variable] = value
+            scenarios.append(
+                np.asarray(
+                    build_design_matrices(
+                        [self.fit.model._acib_design_info], frame, return_type="dataframe"
+                    )[0],
+                    dtype=float,
+                )
+            )
+        params = np.asarray(self.fit.params, dtype=float)
+        predict = self.fit.model.predict
+
+        def mean_contrast(parameters: np.ndarray) -> float:
+            high = np.asarray(predict(parameters, exog=scenarios[1]), dtype=float)
+            low = np.asarray(predict(parameters, exog=scenarios[0]), dtype=float)
+            return float(np.mean(high - low))
+
+        estimate = mean_contrast(params)
+        gradient = np.empty_like(params)
+        for index in range(len(params)):
+            step = np.sqrt(np.finfo(float).eps) * max(1.0, abs(params[index]))
+            upper = params.copy()
+            lower = params.copy()
+            upper[index] += step
+            lower[index] -= step
+            gradient[index] = (mean_contrast(upper) - mean_contrast(lower)) / (2 * step)
+        covariance = np.asarray(self.fit.cov_params(), dtype=float)
+        variance = float(gradient @ covariance @ gradient)
+        std_error = float(np.sqrt(max(variance, 0.0)))
+        z_value = estimate / std_error if std_error else np.nan
+        critical = float(stats.norm.ppf(0.975))
+        scale = 100.0 if self.dependent_variable == HAZEN_PERCENTILE else 1.0
+        return {
+            "dependent_variable": self.dependent_variable,
+            "model_id": self.model_id,
+            "term": f"AME[{variable}]",
+            "estimate": estimate * scale,
+            "std_error": std_error * scale,
+            "p_value": float(2 * stats.norm.sf(abs(z_value))) if np.isfinite(z_value) else np.nan,
+            "conf_low": (estimate - critical * std_error) * scale,
+            "conf_high": (estimate + critical * std_error) * scale,
+            "n_obs": len(self.model_data),
+            "model_type": self.model_type,
+        }
 
     @property
     def fit_statistics(self) -> dict[str, Any]:

@@ -1,5 +1,82 @@
 # Migration plan and results
 
+## Regression robustness estimators
+
+- The existing `nb` estimator retains its previous covariance behavior. The new
+  `nbhc3` estimator uses the same negative-binomial likelihood and fitting process
+  but explicitly uses HC3 covariance for standard errors, confidence intervals,
+  and Wald p-values. This keeps HC3 selection separate from the existing `nb`
+  specification.
+
+- Regression dependent-variable configuration continues to select exactly one
+  estimator per outcome (for example, `hazen_perc_med = "huber"`); it does not
+  implicitly fit OLS alongside another estimator. Supported additions are
+  `huber`, `fractional_logit`, and `ppml`. Huber uses the existing configured
+  formula, covariates, and analytical sample. Fractional logit is limited to
+  relative outcomes; PPML is limited to absolute outcomes. Both GLM estimators
+  use HC3 covariance by default and reject non-converged or non-finite fits.
+- Fractional-logit mwPR is divided by 100 for fitting because its input is stored
+  on a 0–100 scale; the three configured top-percentile shares are already on
+  the 0–1 scale. The academic-inbreeding marginal effect is a discrete mean
+  prediction contrast (inbred versus non-inbred) with delta-method inference;
+  mwPR marginal effects are reported on the original 0–100 scale.
+- OLS and OLS-HC3 retain their existing coefficient/fit-statistics files. The
+  selected non-OLS models write coefficient (including marginal-effect rows)
+  and fit-statistics tables to separate robustness files, all beneath the
+  user-configured `[regression.outputs].directory`. No estimator-specific path
+  declaration duplicates the canonical output directory.
+- RLM does not provide likelihood-based AIC/BIC. Such values remain missing;
+  best-by-AIC/BIC reporting now returns an empty selection when every candidate
+  metric is missing rather than failing the regression output write. No AIC/BIC
+  values are fabricated for Huber fits.
+- This is an additive estimator capability and changes results only when the
+  user selects one of the added model types.
+- Phase 4 was approved and completed with focused independent statsmodels
+  references: Huber coefficients/standard errors match formula-API RLM with
+  `HuberT`; fractional-logit and PPML coefficients, HC3 errors, confidence
+  intervals, and p-values match direct Binomial-logit and Poisson GLMs. Tests
+  also cover mwPR scaling, relative/absolute estimator restrictions, identical
+  complete-case samples, nonlinear AMEs and delta-method inference for both GLMs,
+  PPML nonnegative/convergence/finite-value checks, unchanged OLS-HC3 behavior,
+  and output/config separation. `uv run pytest tests/regression/` passed **82
+  tests** (16 warnings: statsmodels' documented GLM BIC `FutureWarning` and two
+  existing ZINB optimizer `RuntimeWarning`s).
+- Ruff and the complete pre-commit hook set, including mypy, passed on all
+  changed files. A direct `uv run mypy` invocation is unavailable in the
+  project environment; the configured pre-commit mypy hook succeeded. The
+  default full-suite `uv run pytest` cannot collect because two test modules
+  named `test_workflow.py` collide during import. Using
+  `uv run pytest --import-mode=importlib` collected and ran the suite: **329
+  passed, 2 failed**. Both failures are in `tests/pipeline/test_dependencies.py`
+  and concern upstream dependency execution; no regression test failed. These
+  unrelated failures were left unchanged.
+- Created and independently executed these full pipeline configurations:
+  `config/pipeline_regression_ols_hc3.toml`, `pipeline_regression_huber.toml`,
+  `pipeline_regression_fractional_logit.toml`, and `pipeline_regression_ppml.toml`.
+  They preserve all base settings except estimator selections and the
+  regression output directory. OLS-HC3 was selected for all eight primary
+  outcomes, including publications; fractional logit includes only the three
+  top-percentile shares; PPML includes publications and the three absolute
+  top-percentile counts. All four commands completed successfully. Their
+  generated regression-input CSVs have identical SHA-256
+  `6fdc85ee52a38ac77b7c5deb927e0000c923c2bb4a1024f8f2fa767c45e16733`, and all
+  shared Model 9 formulas match exactly. Model 9 has 7,842 observations for
+  every fitted outcome in every configuration.
+- GLM convergence guards passed for all 30 fractional-logit and 40 PPML fits.
+  A diagnostic re-fit of the 80 Huber models checked statsmodels RLM's default
+  deviance tolerance (`1e-8`) against its final two deviance values: 66 converged
+  before the 50-iteration limit; 14 reached the limit above tolerance. The
+  affected pairs are `P_top1` m10/m3/m4/m5/m7/m8, `pp_top_1`
+  m10/m2/m3/m4/m6/m8/m9, and `pp_top_5` m5. The Model 9 Huber effect for
+  `pp_top_1` is therefore flagged as non-converged in the comparison output.
+- Model 9 Supplementary Material tables, with linear coefficients distinguished
+  from nonlinear average marginal effects, are saved at
+  `data/output/regression/model9_estimator_comparisons/`. The directory also
+  contains the per-model Huber convergence diagnostics. The four estimator
+  results are isolated in their requested directories; the previous
+  `data/output/regression/` main-paper coefficient and fit-statistics files
+  retained their pre-run modification times and were not overwritten.
+
 ## Full-data name-disambiguation equivalence correction
 
 - The migrated name-matching artifact correctly retains every field from the
