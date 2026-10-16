@@ -64,7 +64,7 @@ class MatchingOutputSchema(pa.DataFrameModel):
     author_name: Series[str] = pa.Field(alias=AUTHOR_NAME, nullable=True)
     name: Series[str] = pa.Field(alias=NAME, nullable=True)
     indexed_name: Series[str] = pa.Field(alias=INDEXED_NAME, nullable=True)
-    initials: Series[str] = pa.Field(alias=INITIALS, nullable=True)
+    initials: Series[Any] = pa.Field(alias=INITIALS, nullable=True)
     given_name: Series[str] = pa.Field(alias=GIVEN_NAME, nullable=True)
     surname: Series[str] = pa.Field(alias=SURNAME, nullable=True)
     publication_range: Series[str] = pa.Field(alias=PUBLICATION_RANGE, nullable=True)

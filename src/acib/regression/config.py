@@ -30,10 +30,28 @@ from acib.regression.constants import (
     PROFESSOR_ARTICLE_DIAGNOSTICS_FILENAME,
     PROFESSOR_ARTICLE_INPUT_FILENAME,
     REGRESSION_INPUT_DIAGNOSTICS_FILENAME,
+    ROBUSTNESS_COEFFICIENTS_FILENAME,
+    ROBUSTNESS_FIT_STATISTICS_FILENAME,
 )
 
-RegressionModelType = Literal["ols", "pr", "nb", "zinb"]
+RegressionModelType = Literal[
+    "ols",
+    "olshc3",
+    "pr",
+    "nb",
+    "zinb",
+    "huber",
+    "frac",
+    "ppml",
+]
 RegressionOutcomeType = Literal["relative", "absolute"]
+OLS_MODEL_TYPES = frozenset({"ols", "olshc3"})
+NEGATIVE_BINOMIAL_MODEL_TYPES = frozenset({"nb"})
+
+
+def is_ols_model_type(model_type: str) -> bool:
+    """Return whether a configured model uses the linear OLS estimator."""
+    return model_type in OLS_MODEL_TYPES
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +116,16 @@ class RegressionOutputs:
     def model_coefficients(self) -> Path:
         """Return the long-form model coefficients path."""
         return self.directory / MODEL_COEFFICIENTS_FILENAME
+
+    @property
+    def robustness_model_coefficients(self) -> Path:
+        """Return coefficients for configured non-OLS robustness models."""
+        return self.directory / ROBUSTNESS_COEFFICIENTS_FILENAME
+
+    @property
+    def robustness_model_fit_statistics(self) -> Path:
+        """Return fit statistics for configured non-OLS robustness models."""
+        return self.directory / ROBUSTNESS_FIT_STATISTICS_FILENAME
 
     @property
     def model_fit_statistics(self) -> Path:
@@ -166,6 +194,8 @@ class RegressionOutputs:
             self.asjc_field_share_diagnostics,
             self.regression_input_diagnostics,
             self.model_coefficients,
+            self.robustness_model_coefficients,
+            self.robustness_model_fit_statistics,
             self.model_fit_statistics,
             self.dependent_variable_descriptives,
             self.aic_bic_comparison,

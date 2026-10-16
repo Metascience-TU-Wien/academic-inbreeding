@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 
 from acib.pipeline.config import PROJECT_ROOT
+from acib.pipeline.dependencies import ensure_stage_dependencies
 from acib.regression.build import build_regression_inputs_from_config
 from acib.regression.config import load_regression_config
 
@@ -38,6 +39,7 @@ def main(argv: list[str] | None = None) -> None:
     :param argv: Optional command-line arguments for programmatic invocation.
     """
     args = build_parser().parse_args(argv)
+    ensure_stage_dependencies("mobility", args.config)
     config = load_regression_config(args.config)
     if args.validate_paths:
         config.check_paths_exist()

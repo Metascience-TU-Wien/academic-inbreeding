@@ -8,6 +8,7 @@ from pathlib import Path
 
 from acib.mobility.workflow import run_mobility
 from acib.pipeline.config import PROJECT_ROOT, load_mobility_config
+from acib.pipeline.dependencies import ensure_stage_dependencies
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +38,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = build_parser().parse_args(argv)
+    ensure_stage_dependencies("mobility", args.config)
     config = load_mobility_config(args.config)
     if args.validate_paths:
         config.check_input_paths()

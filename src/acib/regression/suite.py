@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pandas as pd
@@ -15,7 +15,7 @@ from acib.regression.analysis_config import (
     OUTCOME_DISPLAY_LABELS,
     RegressionSuiteConfig,
 )
-from acib.regression.config import RegressionOutputs
+from acib.regression.config import RegressionOutputs, is_ols_model_type
 from acib.regression.constants import (
     ABSOLUTE_PERFORMANCE_OUTCOMES,
     ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
@@ -32,6 +32,7 @@ from acib.regression.model import FittedRegressionModel
 from acib.regression.models import fit_regression_model, validate_mle_fit
 from acib.regression.output import write_regression_suite_outputs
 from acib.regression.plots.model9_inbreeding_predictions import (
+    DEFAULT_OUTPUT_BASENAME as MODEL9_PREDICTION_OUTPUT_BASENAME,
     Model9InbreedingPredictionPlot,
     Model9InbreedingPredictionPlotConfig,
 )
@@ -134,7 +135,11 @@ class RegressionSuiteResult:
         )
 
     def latex_tables_for_data(self, *, data: pd.DataFrame | None) -> dict[str, str]:
-        """Render available LaTeX reports, keyed by their original filenames."""
+        """Render the standard LaTeX reports for configured model specifications.
+
+        :param data: Optional regression input for descriptive statistics.
+        :return: LaTeX reports keyed by output filename.
+        """
         from acib.regression.latex import (
             absolute_performance_latex_table,
             absolute_top_percentile_latex_table,
@@ -148,37 +153,40 @@ class RegressionSuiteResult:
             research_performance_latex_table,
         )
 
+        latex_models = self.models
         tables = {
             f"research_performance_{mid}.tex": research_performance_latex_table(
-                self.models,
+                latex_models,
                 model_id=mid,
                 outcomes=self.relative_performance_outcomes,
                 outcome_aliases=self.outcome_aliases,
             )
             for mid in renderable_research_performance_model_ids(
-                self.models, outcomes=self.relative_performance_outcomes
+                latex_models, outcomes=self.relative_performance_outcomes
             )
         }
         tables.update(
             {
                 f"absolute_performance_{mid}.tex": absolute_performance_latex_table(
-                    self.models,
+                    latex_models,
                     model_id=mid,
                     outcomes=self.absolute_performance_outcomes,
                     outcome_aliases=self.outcome_aliases,
                 )
                 for mid in renderable_absolute_performance_model_ids(
-                    self.models, outcomes=self.absolute_performance_outcomes
+                    latex_models, outcomes=self.absolute_performance_outcomes
                 )
             }
         )
         tables.update(
             {
                 f"model_comparison_{outcome}.tex": model_comparison_latex_table(
-                    self.models, dependent_variable=outcome, outcome_aliases=self.outcome_aliases
+                    latex_models,
+                    dependent_variable=outcome,
+                    outcome_aliases=self.outcome_aliases,
                 )
                 for outcome in renderable_model_comparison_outcomes(
-                    self.models,
+                    latex_models,
                     outcomes=(
                         *self.relative_performance_outcomes,
                         *self.absolute_performance_outcomes,
@@ -188,20 +196,20 @@ class RegressionSuiteResult:
         )
         if set(self.absolute_performance_outcomes).issuperset(
             ABSOLUTE_TOP_PERCENTILE_OUTCOMES
-        ) and can_render_absolute_top_percentile_latex_table(self.models, model_id="m9"):
+        ) and can_render_absolute_top_percentile_latex_table(latex_models, model_id="m9"):
             tables["model9_absolute_top_percentile_robustness.tex"] = (
                 absolute_top_percentile_latex_table(
-                    self.models, model_id="m9", outcome_aliases=self.outcome_aliases
+                    latex_models, model_id="m9", outcome_aliases=self.outcome_aliases
                 )
             )
         if can_render_model10_without_international_mobility_table(
-            self.models,
+            latex_models,
             relative_outcomes=self.relative_performance_outcomes,
             absolute_outcomes=self.absolute_performance_outcomes,
         ):
-            tables["model10_without_international_mobility.tex"] = (
+            tables["performance_without_international_mobility.tex"] = (
                 model10_without_international_mobility_latex_table(
-                    self.models,
+                    latex_models,
                     relative_outcomes=self.relative_performance_outcomes,
                     absolute_outcomes=self.absolute_performance_outcomes,
                     outcome_aliases=self.outcome_aliases,
@@ -210,7 +218,7 @@ class RegressionSuiteResult:
         if data is not None:
             tables["descriptive_statistics.tex"] = descriptive_statistics_latex_table(
                 data,
-                models=self.models,
+                models=latex_models,
                 model_id="m9",
                 absolute_performance_outcomes=self.absolute_performance_outcomes,
             )
@@ -285,9 +293,23 @@ class RegressionSuiteResult:
             else pd.DataFrame()
         )
         outputs.plots_dir.mkdir(parents=True, exist_ok=True)
+        coefficients = self.coefficients
+        fit_statistics = self.fit_statistics
+        ols_mask = (
+            coefficients["model_type"].map(is_ols_model_type)
+            if "model_type" in coefficients
+            else pd.Series(dtype=bool)
+        )
+        fit_ols_mask = (
+            fit_statistics["model_type"].map(is_ols_model_type)
+            if "model_type" in fit_statistics
+            else pd.Series(dtype=bool)
+        )
         write_regression_suite_outputs(
-            coefficients=self.coefficients,
-            fit_statistics=self.fit_statistics,
+            coefficients=coefficients.loc[ols_mask].reset_index(drop=True),
+            fit_statistics=fit_statistics.loc[fit_ols_mask].reset_index(drop=True),
+            robustness_coefficients=coefficients.loc[~ols_mask].reset_index(drop=True),
+            robustness_fit_statistics=fit_statistics.loc[~fit_ols_mask].reset_index(drop=True),
             formulas=self.formulas,
             summaries=self.summaries,
             descriptives=descriptives,
@@ -320,7 +342,7 @@ class RegressionSuiteResult:
         }
         if not model9_plot_models:
             return ()
-        if any(model.model_type != "ols" for model in model9_plot_models.values()):
+        if any(not is_ols_model_type(model.model_type) for model in model9_plot_models.values()):
             _logger.info("Skipping model 9 prediction plot for non-OLS model results")
             return ()
         from matplotlib import pyplot as plt
@@ -329,9 +351,21 @@ class RegressionSuiteResult:
             result=self,
             config=plot_config,
         )
-        paths = plot.write()
+        paths = list(plot.write())
         plt.close(plot.figure)
-        return paths
+        combined_config = replace(
+            plot_config,
+            output_basename=f"{MODEL9_PREDICTION_OUTPUT_BASENAME}_by_title",
+            group_by_title=True,
+            figure_size=(16.0, 10.5),
+        )
+        combined_plot = Model9InbreedingPredictionPlot.from_result(
+            result=self,
+            config=combined_config,
+        )
+        paths.extend(combined_plot.write())
+        plt.close(combined_plot.figure)
+        return tuple(paths)
 
     def write_professor_violin_plot(
         self, *, plots_dir: Path, professor_articles: pd.DataFrame | None

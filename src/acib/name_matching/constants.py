@@ -46,6 +46,7 @@ NAME = "name"
 NAME_VARIANTS = "name_variants"
 INDEXED_NAME = "indexed_name"
 INITIALS = "initials"
+IS_ALTERNATIVE = "is_alternative"
 SC_ID_ALL_PROFS = "sc_id_all_profs"
 PUBLICATION_RANGE = "publication_range"
 SUBJECT_ABBREVIATION = "subject_abbreviation"
@@ -78,6 +79,7 @@ AUTHOR_COLUMNS = (
     SUBJECT_CODE,
     INDEXED_NAME,
     INITIALS,
+    IS_ALTERNATIVE,
     NAME,
     SURNAME,
     GIVEN_NAME,
@@ -102,11 +104,19 @@ MATCHING_OUTPUT_COLUMNS = (
     NAME,
     INDEXED_NAME,
     INITIALS,
+    IS_ALTERNATIVE,
     GIVEN_NAME,
     SURNAME,
     PUBLICATION_RANGE,
     NAME_VARIANTS,
     SUBJECT_AREAS,
+    HISTORICAL_IDENTIFIER,
+    AFFILIATION_ID,
+    AFFILIATION_ID_PARENT,
+    AFFILIATION_ID_PARENT_CHATGPT,
+    AFFILIATION_ID_PARENT_SPLINK_CHATGPT,
+    AFFILIATION_NAME,
+    AFFILIATION_IDS_CURRENT,
 )
 
 # This split-name pair is consumed by both the helper and containment strategy.

@@ -114,6 +114,14 @@ def test_mobility_missing_inputs_report_producing_stage_and_data_owner(
             'directory = "data/slurm/output/name_matching"',
             f'directory = "{tmp_path / "matching"}"',
         )
+        .replace(
+            'article_author_file_path = "data/input/article.parquet"',
+            'article_author_file_path = "external-missing/article.parquet"',
+        )
+        .replace(
+            'author_affiliations_file_path = "data/input/author_affiliation.gpkg"',
+            'author_affiliations_file_path = "external-missing/author_affiliation.gpkg"',
+        )
     )
     config_path.write_text(text, encoding="utf-8")
 

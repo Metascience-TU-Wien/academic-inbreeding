@@ -138,6 +138,133 @@ def test_researcher_projection_does_not_require_university_when_filter_disabled(
     assert result.matched[RESEARCHER_ID].tolist() == [1]
 
 
+def test_match_researchers_prefers_structured_compound_surname() -> None:
+    researchers = pd.DataFrame(
+        {
+            RESEARCHER_ID: [1241],
+            "person_name": ["Lucia"],
+            "person_surname": ["Diez Sanjuan"],
+            "person_fullname": ["Lucia Diez Sanjuan"],
+        }
+    )
+    authors = pd.DataFrame(
+        {
+            "author_id": [58545598800],
+            EID: ["compound-surname"],
+            "author_name": ["diez sanjuan, lucia"],
+            "given_name": ["Lucía"],
+            "surname": ["Díez-Sanjuán"],
+        }
+    )
+
+    result = match_researchers(researchers, authors, enable_organisation_filter=False)
+
+    assert result.matched[[RESEARCHER_ID, "author_id", "priority"]].to_dict("records") == [
+        {RESEARCHER_ID: 1241, "author_id": 58545598800, "priority": 3}
+    ]
+    assert result.matched.iloc[0]["researcher_name"] == "sanjuan, lucia diez"
+
+
+def test_match_researchers_falls_back_to_display_name_when_components_are_incomplete() -> None:
+    researchers = pd.DataFrame(
+        {
+            RESEARCHER_ID: [1],
+            "person_name": [""],
+            "person_surname": ["Smith"],
+            "person_fullname": ["Anna Smith"],
+        }
+    )
+    authors = pd.DataFrame(
+        {
+            "author_id": [10],
+            EID: ["P1"],
+            "author_name": ["smith, anna"],
+            "given_name": ["Anna"],
+            "surname": ["Smith"],
+        }
+    )
+
+    result = match_researchers(researchers, authors, enable_organisation_filter=False)
+
+    assert result.matched[RESEARCHER_ID].tolist() == [1]
+    assert result.matched.iloc[0]["researcher_name"] == "smith, anna"
+
+
+def test_match_researchers_uses_candidate_name_fallback_and_normalizes_spacing() -> None:
+    researchers = pd.DataFrame(
+        {
+            RESEARCHER_ID: [1],
+            "person_name": ["Anna"],
+            "person_surname": ["Smith"],
+        }
+    )
+    authors = pd.DataFrame(
+        {
+            "author_id": [10],
+            EID: ["P1"],
+            "author_name": [""],
+            "name": ["Smith, Anna"],
+            "given_name": [""],
+            "surname": [""],
+        }
+    )
+
+    result = match_researchers(researchers, authors, enable_organisation_filter=False)
+
+    assert result.matched["author_id"].tolist() == [10]
+    assert result.matched.iloc[0]["researcher_name"] == "smith, anna"
+    assert result.matched.iloc[0]["author_name"] == "smith, anna"
+
+
+def test_match_researchers_recovers_full_candidate_given_name_from_display_name() -> None:
+    researchers = pd.DataFrame(
+        {
+            RESEARCHER_ID: [1],
+            "person_name": ["Eduard Martin"],
+            "person_surname": ["Groller"],
+        }
+    )
+    authors = pd.DataFrame(
+        {
+            "author_id": [10],
+            EID: ["P1"],
+            "author_name": ["Groller, Eduard Martin"],
+            "given_name": ["E. M."],
+            "surname": ["Groller"],
+        }
+    )
+
+    result = match_researchers(researchers, authors, enable_organisation_filter=False)
+
+    assert result.matched["author_id"].tolist() == [10]
+    assert result.matched.iloc[0]["author_name"] == "groller, eduard martin"
+
+
+def test_match_researchers_rejects_surname_only_candidate() -> None:
+    researchers = pd.DataFrame(
+        {
+            RESEARCHER_ID: [1],
+            "person_name": ["Anna"],
+            "person_surname": ["Smith"],
+        }
+    )
+    authors = pd.DataFrame(
+        {
+            "author_id": [10],
+            EID: ["P1"],
+            "author_name": [""],
+            "name": ["Smith"],
+            "given_name": [""],
+            "surname": ["Smith"],
+        }
+    )
+
+    result = match_researchers(researchers, authors, enable_organisation_filter=False)
+
+    assert result.matched.empty
+    assert result.unmatched[RESEARCHER_ID].tolist() == [1]
+
+
 def test_organization_filter_handles_all_researchers_matched() -> None:
     researchers = pd.DataFrame(
         {

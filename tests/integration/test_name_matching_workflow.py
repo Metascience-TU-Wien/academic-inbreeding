@@ -43,6 +43,15 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
                 "scopus_author_id": "",
                 "researcher_metadata": "not-resolved",
             },
+            {
+                "sc_id": 4,
+                "person_name": "Maria",
+                "person_surname": "Jones",
+                "person_fullname": "Maria Jones",
+                "university_name": "TU Wien",
+                "scopus_author_id": "",
+                "researcher_metadata": "fallback-match",
+            },
         ]
     )
     authors = pd.DataFrame(
@@ -56,6 +65,21 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
                 "given_name": "Anna",
                 "surname": "Smith",
                 "publication_range": "2020-2024",
+                "name_variants": "[]",
+                "subject_areas": "[]",
+                "affiliation_id": 60018163,
+                "affiliation_id_parent": "60018163.0",
+            },
+            {
+                "author_id": 11,
+                "eid": "E2",
+                "author_name": "",
+                "name": "Jones, Maria",
+                "indexed_name": "Jones M.",
+                "initials": "M.",
+                "given_name": "",
+                "surname": "",
+                "publication_range": "2021-2024",
                 "name_variants": "[]",
                 "subject_areas": "[]",
                 "affiliation_id": 60018163,
@@ -78,22 +102,27 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
     output = run_name_matching(config)
 
     assert output_path.exists()
-    assert len(output) == 2
+    assert len(output) == 3
     assert output[RESEARCHER_ID].notna().all()
-    assert output[RESEARCHER_ID].tolist() == [1, 2]
+    assert output[RESEARCHER_ID].tolist() == [1, 2, 4]
     matched = output.loc[output["priority"].eq(1)].iloc[0]
     assert matched[AUTHOR_ID] == 10
-    assert matched["researcher_name"] == "smith,  anna"
-    assert matched["author_name"] == "smith,  anna"
+    assert matched["researcher_name"] == "smith, anna"
+    assert matched["author_name"] == "smith, anna"
     assert matched["person_name"] == "Anna"
     assert matched["person_surname"] == "Smith"
     assert matched["person_fullname"] == "Anna Smith"
-    assert matched["affiliation_id_parent"] == 60018163
     assert matched["researcher_metadata"] == "preserve-me"
+    assert not any(column.endswith("_researcher_metadata") for column in output.columns)
+    assert matched["affiliation_id_parent"] == 60018163
     passthrough = output.loc[output["priority"].eq(0)].iloc[0]
     assert passthrough[AUTHOR_ID] == 999
-    assert passthrough["scopus_author_id"] == 999.0
+    assert "scopus_author_id" not in output.columns
     assert passthrough["researcher_metadata"] == "also-preserve"
+    fallback = output.loc[output[RESEARCHER_ID].eq(4)].iloc[0]
+    assert fallback[AUTHOR_ID] == 11
+    assert fallback["researcher_name"] == "jones, maria"
+    assert fallback["author_name"] == "jones, maria"
     assert output_path.stat().st_size > 0
 
 

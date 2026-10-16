@@ -1,5 +1,356 @@
 # Migration plan and results
 
+## Approved regression estimator refactor
+
+- This section supersedes the earlier regression-robustness-bundle description
+  below. Each outcome now selects one estimator independently. Supported values
+  are `ols`, `olshc3`, `huber`, `frac`, `ppml`, `nb`, `pr`, and `zinb`;
+  `fractional_logit` is renamed `frac`, and the former `nbhc3` behavior is
+  represented by `nb` (negative-binomial likelihood with HC3 covariance).
+  Combined values `huberfrac`, `huberppml`, and `nbppml` are rejected. `pr` and
+  `zinb` remain available as independent legacy estimators.
+- `frac`, `ppml`, and `nb` preserve raw fitted parameters in result objects and
+  add separately identified average marginal effects. Continuous predictors
+  use average derivatives; categorical predictors use average predicted
+  differences from the Patsy reference category. Delta-method standard errors
+  and p-values use the fitted covariance matrix. Fractional-logit effects are
+  restored to the outcome's original scale. Model specifications 1–10 retain
+  their existing formulas and sample selection. The age effect differentiates
+  the complete formula, including a quadratic age term; the separate squared
+  term row remains a placeholder for nonlinear estimators.
+- `frac` requires outcomes in [0, 1] or [0, 100], retaining exact endpoints;
+  observed 0–100 outcomes are divided by 100 for fitting and results are
+  restored to the original scale. `ppml` preserves nonnegative outcomes,
+  including fractional publication counts and zeros. `nb` requires
+  nonnegative counts; fractional `P_top10`, `P_top5`, and `P_top1` responses
+  are rounded to nearest integer using half-up ties (for example, 2.5 becomes
+  3), on an estimator-owned copy of the data. This NB approximation affects
+  only the response passed to NB and is identified in result metadata.
+- LaTeX presentation retains existing templates and filenames. OLS-family,
+  Huber, and nonlinear estimators use estimator-appropriate effect headings;
+  the compact model-comparison table keeps its original stars-based p-value
+  presentation. Huber's Model 1–10 fitting is generic; existing M9/M10-specific
+  supplementary reports remain intentionally tied to those specifications.
+- Approval of this estimator redesign, its half-up count rounding, the
+  M9-specific supplementary reports, and the typed result metadata was granted
+  during the design review. The user separately authorized Phase 4 regression
+  test migration and verification.
+
+## Regression estimator refactor — Phase 4 verification
+
+- Migrated/updated regression tests under `tests/regression/`, including
+  independent selection of all eight supported estimators, removal of combined
+  identifiers, input reuse workflow coverage, outcome-domain checks, exact
+  fractional endpoints, estimator-specific transformations, and standard
+  output filenames.
+- Added independent numerical AME references for fractional logit and PPML
+  binary contrasts/delta-method inference, NB binary contrasts and title
+  contrasts with robust standard errors and p-values, and a continuous Model 7
+  age derivative that includes the quadratic term. The table keeps the age²
+  coefficient row as a placeholder for nonlinear fits.
+- Added half-up NB tie/boundary checks (`2.5 -> 3`), actual NB response checks,
+  original-input immutability checks, PPML fractional-response preservation,
+  mixed-estimator headings/notes, and M9/M10 supplementary output-file checks.
+- Compared source and target Model 1–10 specifications using the original
+  repository's implementations at
+  `/home/chri/PycharmProjects/name-matching-playground`: all formula strings,
+  complete-case row indexes, Patsy design columns, and design-matrix values
+  matched exactly. Sample sizes were 119 for Models 1–8 and 118 for Models 9–10
+  in the deterministic comparison fixture. Design dimensions were 6, 7, 8, 8,
+  9, 10, 11, 36, 37, and 36 respectively.
+- Additional source-vs-target estimator comparisons matched estimates and
+  standard errors for OLS, OLS-HC3, Poisson regression, and ZINB on deterministic
+  synthetic data. NB parameter estimates matched; its covariance intentionally
+  differs because the requested target behavior uses HC3 while the source's
+  default `nb` uses conventional covariance. Huber matched the direct statsmodels
+  HuberT/RLM reference. Fractional logit and PPML matched direct Binomial-logit
+  and Poisson GLM references.
+- `uv run pytest tests/regression/ -q`: **101 passed**, 2 statsmodels ZINB
+  optimizer runtime warnings (invalid logarithms during candidate fitting).
+  `uv run pytest tests/integration/ -q`: after updating the regression-output
+  assertion for estimator-specific inference notes, **24 passed**; 5 pandas
+  concatenation FutureWarnings remain in name-matching/mobility tests.
+- `uv run pytest --import-mode=importlib -q`: **349 passed, 2 failed**. Both
+  failures are in `tests/pipeline/test_dependencies.py` and concern producer
+  ordering/missing external inputs for name disambiguation; they are outside the
+  regression scope. No regression test failed.
+  Default `uv run pytest -q` still stops during collection because test modules
+  named `test_workflow.py` collide; importlib mode collects the suite.
+- `uv run ruff check` and all configured pre-commit hooks passed, including
+  Flake8, Black, mypy, and isort. No research data or original-repository files
+  were modified. No estimator-behavior discrepancy was found beyond the
+  explicitly requested NB HC3 covariance change.
+- Follow-up runtime investigation found that AME delta-method gradients rebuilt
+  Patsy design matrices and evaluated parameter perturbations serially. AME
+  scenario matrices are now built once, and the same central finite-difference
+  parameter perturbations are evaluated as a batch. The scenario data,
+  covariance calculation, finite-difference method, and reported estimand are
+  unchanged. Regression tests (101 passed) and all configured pre-commit hooks
+  passed after this optimization.
+
+## Fractional-logit Model 9 independent validation
+
+- Validated the completed run configured by
+  `config/pipeline_regression_frac.toml`, reading its resolved researcher input
+  and regression outputs without modifying either. Model 9's source and target
+  formula terms matched; for each of mwPR and the three PP outcomes, the
+  complete-case row indexes and Patsy design matrices matched the original
+  repository exactly (7,842 rows, 38 columns).
+- Independent direct statsmodels GLM fits used Binomial with the Logit link and
+  HC3 covariance. For each outcome, fitted parameters and standard errors
+  matched the saved target coefficients to maximum absolute differences below
+  `5e-16` and `1e-16`, respectively. All four fits converged with finite
+  estimates/covariances. Predicted probabilities stayed in `[0, 1]`; none were
+  below `1e-6` or above `1 - 1e-6`.
+- Independent Patsy scenario construction, SciPy inverse-logit predictions,
+  parameter finite differences, and HC3 delta-method calculations reproduced
+  all 37 saved AMEs per outcome. Maximum estimate differences were below
+  `5e-15`, standard-error differences below `3e-11`, and p-value differences
+  below `3e-12`. This includes inbreeding discrete effects, continuous
+  derivatives, and categorical contrasts. The formula's Patsy treatment
+  baseline for title is Ao. Prof.; the paper table separately contrasts each
+  title against Full Prof., matching the original reporting convention.
+- Only mwPR was rescaled from 0–100 to 0–1 for fitting and returned to
+  percentile-point units. The three PP outcomes remained on their original
+  0–1 fractional scale for fitting and their AMEs were expressed in percentage
+  points. Their nonbinary responses and observed endpoints were retained; the
+  actual sample contains 6,336/5,531/3,367 nonbinary observations for PP(top
+  10%)/PP(top 5%)/PP(top 1%), respectively. PP(top 10%) has 1,486 zeros and 20
+  ones; PP(top 5%) has 2,305 zeros and 6 ones; PP(top 1%) has 4,475 zeros and
+  no ones. mwPR has no exact endpoints in this sample.
+- For inbreeding, independently calculated AMEs (HC3 delta SE, z-test p-value)
+  were: mwPR `-1.84454` (`0.32422`, `p=1.28e-8`, `***`); PP(top 10%) `-1.01886`
+  (`0.31526`, `p=0.00123`, `**`); PP(top 5%) `-0.43251` (`0.21728`,
+  `p=0.04653`, `*`); PP(top 1%) `-0.10233` (`0.07654`, `p=0.18121`, no star).
+  The M9 LaTeX table labels estimates AME, gives percentile/percentage-point
+  units and robust SEs, and keeps raw logit coefficients in separate CSV rows.
+- Numerical-differentiation checks found the production `1e-5` parameter step
+  stable against `1e-6`: inbreeding SE differences were at most `0.00004`
+  percentage/percentile points. `1e-4` had larger discrepancies (up to about
+  2.6% for PP(top 1%)); this is recorded as sensitivity to an overly large
+  gradient step, not evidence of fit instability. Continuous age AMEs were
+  stable across `1e-4`, `1e-5`, and `1e-6` predictor steps.
+- OLS-HC3 M9 inbreeding benchmarks were `-1.84907`, `-1.02272`, `-0.42838`,
+  and `-0.07309` in corresponding percentile/percentage-point units. These
+  are descriptive linear-model comparisons, not a correctness criterion for
+  the nonlinear AMEs; independent prediction and delta-method calculations
+  above provide that validation. The original implementation has no
+  Fractional-Logit estimator to compare directly.
+
+## Negative-binomial AME overflow correction
+
+- The configured NB failure was traced to an estimation/prediction-coordinate
+  mismatch. NB fitting centers `first_year`, but AME scenarios had been rebuilt
+  from the uncentered source frame. For Model 9/10, this produced invalid or
+  overflowing mean predictions, non-finite delta-method variances, and a later
+  LaTeX formatting failure on `nan`/`inf` standard errors.
+- NB AME scenarios now use the same centered predictor coordinate as the fit.
+  The NB delta-method gradient uses the exact derivative of its log-link mean,
+  avoiding repeated parameter perturbation predictions; the AME definition,
+  fitted likelihood, covariance, model formula, and sample remain unchanged.
+  Non-finite gradient/covariance/variance inputs now fail with an AME-specific
+  error rather than emitting matmul warnings and failing later in formatting.
+- Validation with the configured 7,842-row researcher artifact: one Model 9
+  `P_top10` NB fit plus its 37 AMEs completed in 0.62 seconds, with centered
+  `first_year` mean approximately zero and all estimates, SEs, and p-values
+  finite. The NB Model 9 regression test independently checks the centered
+  prediction frame and compares the analytic log-link delta SE to numerical
+  finite differences.
+
+## Estimator-specific LaTeX effect headings
+
+- The main relative/absolute performance, Model 9 supplementary, and Model 10
+  templates already choose `AME` versus `Coef.` per outcome column. Added an
+  explicit effect-type header beneath each M1–M10 model heading in the compact
+  model-comparison tables, so NB model columns are labeled `AME` while linear
+  model columns remain labeled `Coef.`. Estimate selection, standard errors,
+  significance stars, and existing table filenames are unchanged.
+- The negative-binomial table test asserts one `AME` label per model column.
+- The Model 10 comparison table now reports the inbreeding estimate, robust
+  standard error, and p-value, followed by estimator and effect rows populated
+  from each outcome's configured model family. For the documented OLS-HC3/NB
+  configuration this identifies OLS coefficients and the NB AME explicitly;
+  numerical estimates and inference are unchanged. Its caption and estimator-
+  specific note follow the requested research-performance table wording.
+
+## Regression robustness estimators
+
+- The `huberfrac`, `huberppml`, and `nbppml` bundles are selected directly as
+  values in `[regression.dependent_variables]`. For each selected outcome and
+  configured formula specification, the bundle fits its two named estimators
+  under distinct model IDs. Model 9 therefore keeps the same formula, ASJC
+  controls, and complete-case sample as that outcome's existing Model 9.
+  Huber RLM retains its HuberT covariance; fractional logit, PPML, and NBHC3
+  bundle fits use HC3. Fractional logit rescales mwPR to [0, 1] for fitting.
+  Nonlinear GLM outputs include discrete average effects for binary inbreeding.
+- The existing `nb` estimator retains its previous covariance behavior. The new
+  `nbhc3` estimator uses the same negative-binomial likelihood and fitting process
+  but explicitly uses HC3 covariance for standard errors, confidence intervals,
+  and Wald p-values. This keeps HC3 selection separate from the existing `nb`
+  specification.
+
+- Regression dependent-variable configuration selects one existing model family
+  per outcome or one explicitly named two-estimator bundle; selecting a bundle
+  does not implicitly fit another estimator. Supported additions are
+  `huber`, `fractional_logit`, and `ppml`. Huber uses the existing configured
+  formula, covariates, and analytical sample. Fractional logit is limited to
+  relative outcomes; PPML is limited to absolute outcomes. Both GLM estimators
+  use HC3 covariance by default and reject non-converged or non-finite fits.
+- Selecting a bundle in `[regression.dependent_variables]` replaces that
+  outcome's previous model-family selection for all configured model
+  specifications; it does not retain the previous estimator in parallel.
+  This is the requested configuration behavior. For example,
+  `pp_top_10 = "huberfrac"` fits Huber and fractional logit for that outcome.
+- Bundles use the existing LaTeX filenames and layouts. The standard tables
+  select one presentation estimator per outcome (Huber for `huberfrac` and
+  `huberppml`; NBHC3 for `nbppml`), retaining the established one-fit-per-outcome
+  table structure. Companion fractional-logit and PPML fits remain in the
+  robustness CSV outputs rather than producing alternate suffixed LaTeX tables.
+- Fractional-logit mwPR is divided by 100 for fitting because its input is stored
+  on a 0–100 scale; the three configured top-percentile shares are already on
+  the 0–1 scale. The academic-inbreeding marginal effect is a discrete mean
+  prediction contrast (inbred versus non-inbred) with delta-method inference;
+  mwPR marginal effects are reported on the original 0–100 scale.
+- OLS and OLS-HC3 retain their existing coefficient/fit-statistics files. The
+  selected non-OLS models write coefficient (including marginal-effect rows)
+  and fit-statistics tables to separate robustness files, all beneath the
+  user-configured `[regression.outputs].directory`. No estimator-specific path
+  declaration duplicates the canonical output directory.
+- RLM does not provide likelihood-based AIC/BIC. Such values remain missing;
+  best-by-AIC/BIC reporting now returns an empty selection when every candidate
+  metric is missing rather than failing the regression output write. No AIC/BIC
+  values are fabricated for Huber fits.
+- This is an additive estimator capability and changes results only when the
+  user selects one of the added model types.
+- Phase 4 was approved and completed with focused independent statsmodels
+  references: Huber coefficients/standard errors match formula-API RLM with
+  `HuberT`; fractional-logit and PPML coefficients, HC3 errors, confidence
+  intervals, and p-values match direct Binomial-logit and Poisson GLMs. Tests
+  also cover mwPR scaling, relative/absolute estimator restrictions, identical
+  complete-case samples, nonlinear AMEs and delta-method inference for both GLMs,
+  PPML nonnegative/convergence/finite-value checks, unchanged OLS-HC3 behavior,
+  and output/config separation. `uv run pytest tests/regression/` passed **82
+  tests** (16 warnings: statsmodels' documented GLM BIC `FutureWarning` and two
+  existing ZINB optimizer `RuntimeWarning`s).
+- Ruff and the complete pre-commit hook set, including mypy, passed on all
+  changed files. A direct `uv run mypy` invocation is unavailable in the
+  project environment; the configured pre-commit mypy hook succeeded. The
+  default full-suite `uv run pytest` cannot collect because two test modules
+  named `test_workflow.py` collide during import. Using
+  `uv run pytest --import-mode=importlib` collected and ran the suite: **329
+  passed, 2 failed**. Both failures are in `tests/pipeline/test_dependencies.py`
+  and concern upstream dependency execution; no regression test failed. These
+  unrelated failures were left unchanged.
+- Created and independently executed these full pipeline configurations:
+  `config/pipeline_regression_ols_hc3.toml`, `pipeline_regression_huber.toml`,
+  `pipeline_regression_fractional_logit.toml`, and `pipeline_regression_ppml.toml`.
+  They preserve all base settings except estimator selections and the
+  regression output directory. OLS-HC3 was selected for all eight primary
+  outcomes, including publications; fractional logit includes only the three
+  top-percentile shares; PPML includes publications and the three absolute
+  top-percentile counts. All four commands completed successfully. Their
+  generated regression-input CSVs have identical SHA-256
+  `6fdc85ee52a38ac77b7c5deb927e0000c923c2bb4a1024f8f2fa767c45e16733`, and all
+  shared Model 9 formulas match exactly. Model 9 has 7,842 observations for
+  every fitted outcome in every configuration.
+- GLM convergence guards passed for all 30 fractional-logit and 40 PPML fits.
+  A diagnostic re-fit of the 80 Huber models checked statsmodels RLM's default
+  deviance tolerance (`1e-8`) against its final two deviance values: 66 converged
+  before the 50-iteration limit; 14 reached the limit above tolerance. The
+  affected pairs are `P_top1` m10/m3/m4/m5/m7/m8, `pp_top_1`
+  m10/m2/m3/m4/m6/m8/m9, and `pp_top_5` m5. The Model 9 Huber effect for
+  `pp_top_1` is therefore flagged as non-converged in the comparison output.
+- Model 9 Supplementary Material tables, with linear coefficients distinguished
+  from nonlinear average marginal effects, are saved at
+  `data/output/regression/model9_estimator_comparisons/`. The directory also
+  contains the per-model Huber convergence diagnostics. The four estimator
+  results are isolated in their requested directories; the previous
+  `data/output/regression/` main-paper coefficient and fit-statistics files
+  retained their pre-run modification times and were not overwritten.
+
+## Full-data name-disambiguation equivalence correction
+
+- The migrated name-matching artifact correctly retains every field from the
+  corrected researcher input; this artifact and the corrected source dataset
+  were not changed. The source matcher, however, did not expose all of those
+  fields on matched (`priority != 0`) rows to disambiguation. In particular,
+  target-only `person_email` and researcher `orcid` values created email/ORCID
+  pair evidence, while raw `[]` inferred-ASJC values prevented the source
+  organization's ASJC inference from running.
+- The candidate-author, article-author, citation-edge, affiliation, and impact
+  inputs were SHA-256 identical between repositories. The 93,855-row researcher
+  files differ only in `person_name`/`person_surname` for 884 rows; their
+  `person_fullname` values and row order are identical. The target retained the
+  corrected fields and added no matching-algorithm name swap.
+- Disambiguation now creates a separate evidence copy of the matcher artifact:
+  it applies the existing source-compatible ASJC inference helper; retains
+  email only on pre-resolved (`priority == 0`) rows, as the source output did;
+  and clears researcher ORCID, which the source matcher did not pass through.
+  It does not mutate or rewrite the canonical name-matching artifact. No name
+  swapping was added to matching; the corrected input remains authoritative.
+- With identical current article/reference datasets, `PYTHONHASHSEED=0`, and
+  five workers, the corrected target evidence projection matched the freshly
+  generated original disambiguation outputs exactly across all tabular
+  artifacts: 32,953 final selections, 13,847 pair decisions, 40,371 cluster
+  rows, and 8,279 selection-score rows. Keys and all values matched.
+- The existing target name-matching artifact's inferred codes, after applying
+  the source helper to a copy, matched the source-generated codes for all
+  32,953 researcher IDs. The full target disambiguation run then matched the
+  fresh source run exactly despite retaining the corrected metadata in its
+  upstream matcher artifact.
+- Mobility was rerun to a temporary output directory with the matched
+  disambiguation results. Its four output artifacts matched the fresh original
+  outputs by row values, except one grant-number serialization difference in
+  the mobility proxy (`DFF\\u2fff...` versus the corresponding Unicode
+  character); article rows and all classification/history fields matched.
+  Regression inputs exclude that field.
+- Regression was rerun to temporary output using the temporary mobility
+  artifact. The 7,842-row `author_regression_input.csv` matched the fresh
+  original by researcher ID and every column value; the 653,163-row
+  professor-article input also matched exactly. All 80 model/outcome fit rows
+  had the same keys, formulas, and observation counts. Across all coefficient
+  rows, maximum absolute differences were `1.271e-9` for estimates,
+  `3.153e-11` for standard errors, `1.320e-9` for confidence interval bounds,
+  and `2.124e-9` for p-values. These are floating-point differences, not
+  estimator or specification changes. M9 used 7,842 observations for every configured
+  outcome, with equivalent coefficients, standard errors, confidence intervals,
+  and p-values.
+- One regression invocation initially used a malformed temporary-config path
+  replacement and wrote its newly generated outputs to the configured target
+  directory. The previous 7,835-row target regression output was regenerated
+  from the unchanged prior target mobility artifact and restored. The corrected
+  7,842-row regression verification is in
+  `/tmp/opencode/equivalent_pipeline/regression_corrected/`; mobility outputs
+  are in `/tmp/opencode/equivalent_pipeline/mobility/`, and disambiguation
+  outputs are in `/tmp/opencode/disambiguation_equivalence/target_projected/`.
+  No original-repository files were written, and no commit was created.
+
+## Name-disambiguation equivalence remediation
+
+- Controlled source/target execution found that the migrated workflow passed every
+  column from the article parquet into evidence indexing, while the source loader
+  projects to its declared article-evidence column list. Unprojected funding and
+  other metadata columns were therefore interpreted as additional grant evidence,
+  changing pair scores and researcher selections. The migrated workflow now applies
+  the source projection before validating the article-evidence contract; unknown
+  parquet fields remain ignored as in the source. Researcher metadata and the
+  name-matching output contract are not altered by this correction.
+- The observed affiliation float/integer representation difference is normalized
+  by affiliation-ID extraction to the same identifier string. It was not the cause
+  of the decision differences; no blanket float coercion was added.
+- With `PYTHONHASHSEED=0`, equal worker counts, the same matcher artifact, and the
+  same article/reference paths, complete-data source/target outputs matched exactly:
+  32,953 selections, 13,847 pair decisions, 40,371 cluster rows, and 7,876 final
+  selection-score rows. Composite researcher/pair/author/cluster keys matched, and
+  every output column had zero differences, including selected IDs, statuses,
+  scores, confidence, labels, histories, and ASJC-derived fields.
+- `gender_given_tokens` consumes a set returned by `given_tokens`, so Python hash
+  randomization can change which name token is examined first. Unseeded independent
+  runs consequently showed a small number of differing pair and selection results.
+  The equivalence claim is therefore for controlled executions using the same
+  `PYTHONHASHSEED`; the source pipeline does not enforce a seed. This existing
+  nondeterminism is documented rather than hidden by altering the original.
+
 ## Scope
 
 The source project is `name-matching-playground`, managed with Poetry. The target is this repository, `academic-inbreeding`. Migration is incremental: dependency/build setup comes first; application code and tests are not part of Phase 1.
@@ -81,7 +432,7 @@ established by inspecting implementations.
 - Shared name behavior was checked against its original consumers: the disambiguation parser, name scoring, gender utilities, and matching implementation use the same normalization/splitting/compatibility semantics. The shared module is independent of pandas and stage configuration.
 - Reuse opportunity for the next stage: migrate disambiguation imports of `normalize_person_name`, `split_name`, `given_name_compatible`, and `surname_compatible` to `acib.common.names` rather than recopying those implementations. Future-stage organization/path utilities were not generalized.
 - Cross-stage schema fields confirmed against source consumers have been moved to `src/acib/constants.py`; `acib.name_matching.constants` now imports those shared definitions rather than redeclaring them. Fields whose semantics are stage-specific remain in the name-matching constants module.
-- The name-matching workflow intentionally separates the untouched researcher input metadata from a minimal matching projection. It validates non-null unique `sc_id` values and restores the original researcher columns after matching with a many-to-one merge and a row-count guard. Derived `researcher_name` remains separate from original person-name fields. This improves the original output behavior, which dropped those fields during its matching-column projection, without changing matching rules or organization filtering.
+- The name-matching workflow intentionally separates researcher input metadata from a minimal matching projection. It validates non-null unique `sc_id` values and restores metadata by joining only match-owned result columns, so original metadata takes explicit precedence and merge suffix columns are not produced. The configured existing-Scopus-ID input column is omitted from output; derived `researcher_name` and candidate-author fields remain separate from researcher metadata. This improves the original output behavior, which dropped researcher metadata during its matching-column projection, without changing match priorities or organization filtering.
 - Restored structured `structlog` progress events for input loading, existing-ID passthrough counts, per-organization matching results, output writing, and total runtime. The CLI logging configuration alone was not sufficient: the migration had omitted the original workflow and matching logger calls.
 - Test migration exposed that target organization aggregation raised when all per-organization frames of a result type were empty. Restored the source implementation's safe aggregation behavior, returning an empty DataFrame instead; this does not alter matching criteria or priorities.
 - Fixed the confirmed empty-researcher compound-match bug: organization groups with no researchers are skipped, and `compound_name_merge` now returns an empty frame when either side is empty. In the configured full output, the old implementation had 719 unlinked priority-4 rows, all mapped to FH Johanneum, for which the researcher input contained no researchers. The same early-return bug existed in the original implementation.
@@ -89,6 +440,15 @@ established by inspecting implementations.
 - Migrated the relevant matching, affiliation-preparation, existing-ID, and mapping assertions from the original name-matching tests into `tests/name_matching/`, and added a temporary-file end-to-end workflow test under `tests/integration/`. Original tests for inferred ASJC enrichment and formatting helpers were not ported because those features are not implemented in the target stage.
 - Matching regression expectations cover exact, containment, guarded fuzzy, and compound priorities and organization-filter decisions, based on the original matching tests. The integration case verifies original metadata restoration, Scopus-ID passthrough, output row count, and the organization-filtered match. Full-dataset comparison against the original was not run.
 - A direct representative-fixture comparison of original and migrated `simple_name_merge` results produced identical `(sc_id, eid, priority)` tuples for exact, containment, fuzzy, and compound cases.
+
+### Approved full-data name-preparation correction
+
+- After a same-input full-data source/target comparison, the user approved corrections to researcher and candidate-author name preparation. Complete structured given-name/surname fields take precedence; incomplete fields fall back to usable display-name fields. Names with no recoverable given or surname are excluded, and normalized names use exactly one space after the comma.
+- Candidate-author fallback specifically checks `name` when `author_name` is empty. This restores 9,730 source-retained candidate rows observed in the controlled comparison; the target previously dropped them. The target previously retained 1,049 rows that source preparation rejected, including surname-only values; those are now excluded unless a fallback yields both components.
+- Structured researcher fields preserve compound surnames that the source display-name parser split incorrectly (for example, `Diez Sanjuan, Lucia`). This is an intentional behavior difference approved by the user, not a claim that every changed match is more accurate.
+- Full-data name-preparation comparison: source retained 92,161 researcher rows and target retained 92,162; 5,295 shared researcher names differed after whitespace normalization. Source retained 678,263 candidate rows and target retained 678,757; among 678,262 shared source-row identities, 64,881 normalized candidate names differed. One source-only candidate and 495 target-only candidates remained; target-only names now require both components. Comparison files are in `/tmp/opencode/name_preparation_comparison/`.
+- The controlled full-data matching rerun used identical raw inputs and `max_workers = 1`, with source and target outputs written separately under `/tmp/opencode/name_matching_comparison/`. The source rerun exactly matched the saved playground output by SHA-256. The corrected target produced 41,029 rows versus 40,371 source rows. Of 39,615 shared researcher/author pairs, 3,106 had different priorities; 864 shared researchers had different candidate-author sets. Thus source/target full-data equivalence is not established; changed decisions include the approved structured-name behavior and require case-level assessment before target results are treated as source-equivalent.
+- Added regression coverage for structured compound surnames, display-name fallback, candidate `name` fallback when `author_name` is empty, initials-only structured names, rejection of incomplete names, and end-to-end metadata/output behavior. `uv run pytest tests/name_matching/ tests/integration/test_name_matching_workflow.py` passed (40 tests; six existing pandas `FutureWarning`s).
 
 ### Verification
 
@@ -98,6 +458,14 @@ established by inspecting implementations.
 - Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel --out-dir /tmp/opencode` and `uv run /home/chri/PycharmProjects/academic-inbreeding/.venv/bin/python /home/chri/PycharmProjects/academic-inbreeding/scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
 - `uv run pytest tests/name_matching/` passed (25 tests); `uv run pytest tests/integration/` passed (4 tests). These focused tests emitted pandas `FutureWarning`s from `combine_first` when affiliation fields contain empty entries.
 - `./.venv/bin/ruff check src/acib/name_matching tests/name_matching tests/integration` passed. `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_matching tests/name_matching tests/integration` passed with no type errors; mypy reported unused unrelated configuration sections.
+
+### Full-data output-equivalence reconciliation
+
+- The corrected researcher CSV is retained as the authoritative metadata source. Matching results are joined without overlapping match-side researcher fields, and the configured `scopus_author_id` control column is excluded from the resolved output. Metadata is read lexically for output so values such as Scopus IDs and scores retain their CSV spelling.
+- Matched candidate output now retains the source's historical identifier, affiliation IDs/parent IDs, affiliation name, current-affiliation IDs, and all matching fields in source column order. Pre-resolved rows use the source-compatible `is_alternative=False` and `initials=False` values; other `is_alternative` values remain null. Affiliation IDs retain the source CSV `.0` spelling on serialization.
+- The source full-data baseline and target output were compared as serialized string-valued CSVs after the final four-worker run. Both contain **40,371 rows and the same 57 columns in the same order**. Pair membership, row-key order, and priorities match exactly: zero assignment differences and zero priority differences. Every non-metadata output value matches the source baseline; all retained metadata values match the corrected input exactly. No unexplained column or value differences remain.
+- The intentional metadata-retention differences versus source output occur only in researcher metadata columns; the per-column difference counts are: `person_fullname` 40,371; `person_role` 31,116; `person_link` 38,506; `person_functions` 1,142; `institute_link` 25,329; `person_grade` 8,503; `person_email` 14,112; `person_phone` 6,512; `person_location_link` 250; `orcid` 2,033; `scopus` 316; `organization_names` 38,679; `organization_names_relevant` 38,679; `inferred_asjc_evidence` 38,679; `inferred_asjc_codes` 2,984; `inferred_asjc_parent_codes` 38,679; `inferred_asjc_labels` 38,691; `inferred_asjc_parent_labels` 38,679; `has_inferred_asjc` 38,679; `inferred_asjc_max_score` 29,976; `inferred_asjc_confidence` 38,679; the corresponding seven JSON metadata columns have 38,679 differences each; `person_surname` 38,687; and `person_name` 38,762. For every one of these columns, target values were checked against the corrected researcher input and had zero differences.
+- Output reconciliation exposed blank/empty author-name edge cases in unit fixtures. Candidate names now fall back to the source name when the alternate display-name field is blank, and empty candidate frames are safe in exact/fuzzy/prefix matching. Focused name-matching and integration tests pass (40 tests). The full target suite ran: **309 passed, 2 failed**. Both failures are in pre-existing pipeline dependency tests (`tests/pipeline/test_dependencies.py`) concerning missing external-input checks and stage invocation; no unrelated dependency code was changed. The full-suite failures do not concern matching output equivalence.
 
 ## Phase 2 — `name_disambiguation` code migration
 
@@ -523,6 +891,20 @@ preserving dynamic filenames. Dependency properties are
 `name_disambiguation.outputs.final_author_selection`,
 `mobility.outputs.author_inbreeding_proxy`, and
 `regression.outputs.regression_input`. Relative paths resolve from the project
-root, absolute paths remain absolute, stages remain independently invoked, and
+root, absolute paths remain absolute, stages remain explicitly invoked, and
 stale-artifact detection is not implemented. See `docs/ARCHITECTURE.md` for the
 canonical specification.
+
+## Approved dependency auto-execution
+
+The project owner approved running a producer stage automatically when a
+user-invoked stage is missing one of its configured generated inputs. The
+dependency graph is explicit: disambiguation ensures matching; mobility ensures
+matching and disambiguation; regression ensures mobility when it rebuilds its
+input; statistical matching ensures regression's input artifact, building that
+input without fitting the regression model suite. Name matching has no upstream
+producer. Missing external datasets remain errors. Existing artifacts are
+reused without freshness detection. To prevent accidental replacement,
+auto-execution refuses partial producer output sets unless the producer's
+explicit overwrite option is supplied. See `docs/ARCHITECTURE.md` and
+`acib.pipeline.dependencies` for the canonical behavior.

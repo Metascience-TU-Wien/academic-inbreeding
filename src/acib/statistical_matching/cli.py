@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 
 from acib.pipeline.config import PROJECT_ROOT, load_statistical_matching_config
+from acib.pipeline.dependencies import ensure_stage_dependencies
 from acib.statistical_matching.constants import COVARIATE_BALANCE_FIGURE_FILENAME
 from acib.statistical_matching.workflow import run_statistical_matching
 
@@ -29,6 +30,7 @@ def main(argv: list[str] | None = None) -> None:
     :param argv: Optional command-line arguments.
     """
     args = build_parser().parse_args(argv)
+    ensure_stage_dependencies("statistical_matching", args.config)
     config = load_statistical_matching_config(args.config)
     if args.validate_paths:
         config.check_input_exists()

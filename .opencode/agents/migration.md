@@ -22,10 +22,12 @@ the authoritative configuration and dependency specification. Follow it during
 all migrations; do not duplicate its full specification here or create
 contradictory TOML declarations. Preserve one canonical path per external
 input/artifact, declared ownership, actual artifact dependencies, root-relative
-resolution (while retaining external absolute paths), explicit independent
-stage execution, and artifact contracts/schema validation. Do not add
-orchestration, upstream auto-run, speculative config fields, or freshness
-claims; stale detection is absent. Each `[stage.outputs]` table has one
+resolution (while retaining external absolute paths), explicit user-invoked
+stage execution, and artifact contracts/schema validation. Stage commands
+ensure required generated upstream artifacts exist by running their configured
+producers when absent; missing external data remains an error. Do not add a
+general-purpose scheduler, speculative config fields, or freshness claims;
+stale detection is absent. Each `[stage.outputs]` table has one
 `directory`; stage constants own fixed filenames and output properties derive
 artifact paths. Consumers use those properties directly.
 
@@ -37,14 +39,14 @@ significant architecture choices and request approval before implementation.
 Do not edit TOML or application code during Phase 1.
 
 In Phase 2, implement only the approved selected-stage scope, with canonical
-ownership and dependencies; do not build a general runner or orchestrate
-upstream work. Preserve scientific behavior and reproducibility unless an
+ownership and dependencies; follow documented missing-artifact producer
+execution without building a general scheduler. Preserve scientific behavior and reproducibility unless an
 intentional output/scientific behavior change has explicit approval. Exceptions
 require approval before implementation, accurate documentation in
 `docs/MIGRATION.md`, and Phase 4 verification. Preserve the existing Phase 3
 report-and-stop gate and the separate explicit approval required for Phase 4.
-Phase 4 testing must cover dependency/path behavior, contracts, stage
-independence/no auto-run, and scientific regression against the source, while
+Phase 4 testing must cover dependency/path behavior, contracts, explicit
+stage invocation and missing-artifact producer execution, and scientific regression against the source, while
 testing approved changes as approved. Document canonical paths, ownership,
 dependencies, contracts, resolution/existence/validity/freshness distinctions,
 limitations, and verification results without claiming stale detection.

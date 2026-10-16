@@ -33,7 +33,7 @@ def regression_frame() -> pd.DataFrame:
     count = 240
     age = np.arange(count, dtype=float) % 35 + 1
     inbred = np.arange(count) % 2 == 0
-    title_values = np.array(["Full Prof.", "Ao. Prof.", "Ass. Prof.", "FH-Prof."])
+    title_values = np.array(["Full Prof.", "Ao. Prof.", "Ass. Prof.", "FH-Prof.", "FH-Ass. Prof."])
     med_share = (np.arange(count) % 7) / 7
     return pd.DataFrame(
         {
@@ -188,7 +188,7 @@ def test_configured_performance_latex_outputs_are_written_to_configured_director
     assert "Publications" in absolute and r"P(top 10\%)" in absolute
     assert r"\textbf{$P$}" in absolute
     assert r"P{>}|t|" not in absolute
-    assert "OLS $p$-values are based on $t$-tests" in absolute
+    assert "OLS uses conventional standard errors and $t$-test inference" in absolute
 
     outputs = outputs_under(tmp_path)
     result.write(outputs, data=data)
@@ -238,7 +238,7 @@ def test_model10_full_specification_latex_is_written_to_configured_directory(
             exclude_titles=(),
         ),
     ).fit()
-    table = result.latex_tables["model10_without_international_mobility.tex"]
+    table = result.latex_tables["performance_without_international_mobility.tex"]
     assert r"\label{tab:without_international_mobility}" in table
     assert r"\textbf{Relative citation impact}" in table
     assert r"\textbf{Absolute publication output}" in table
@@ -246,7 +246,7 @@ def test_model10_full_specification_latex_is_written_to_configured_directory(
 
     outputs = outputs_under(tmp_path)
     result.write(outputs, data=data)
-    assert (outputs.latex_dir / "model10_without_international_mobility.tex").is_file()
+    assert (outputs.latex_dir / "performance_without_international_mobility.tex").is_file()
 
 
 def test_model9_writer_ignores_unrelated_nb_fit_and_writes_plot(tmp_path: Path) -> None:
@@ -273,6 +273,8 @@ def test_model9_writer_ignores_unrelated_nb_fit_and_writes_plot(tmp_path: Path) 
     result.write(outputs_under(tmp_path), data=suite.data, professor_articles=professor_articles)
 
     assert (tmp_path / "plots" / "model9_inbreeding_predictions.png").is_file()
+    assert (tmp_path / "plots" / "model9_inbreeding_predictions_by_title.png").is_file()
+    assert not (tmp_path / "plots" / "model9_inbreeding_predictions_full_prof.png").exists()
     assert not (tmp_path / "plots" / "model9_inbreeding_predictions.csv").exists()
     assert (tmp_path / "plots" / "professor_title_inbreeding_violin.png").is_file()
 

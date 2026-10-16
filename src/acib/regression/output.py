@@ -18,6 +18,8 @@ def write_regression_suite_outputs(
     *,
     coefficients: pd.DataFrame,
     fit_statistics: pd.DataFrame,
+    robustness_coefficients: pd.DataFrame,
+    robustness_fit_statistics: pd.DataFrame,
     formulas: dict[str, str],
     summaries: dict[str, str],
     descriptives: pd.DataFrame,
@@ -35,6 +37,8 @@ def write_regression_suite_outputs(
 
     :param coefficients: Long-form coefficient table.
     :param fit_statistics: Model fit-statistics table.
+    :param robustness_coefficients: Non-OLS coefficient and marginal-effect table.
+    :param robustness_fit_statistics: Non-OLS model fit-statistics table.
     :param formulas: Mapping from model key to formula string.
     :param summaries: Mapping from model key to formatted summary text.
     :param descriptives: Dependent-variable descriptive statistics.
@@ -52,6 +56,8 @@ def write_regression_suite_outputs(
     tables: list[tuple[str, pd.DataFrame]] = [
         ("model_coefficients", coefficients),
         ("model_fit_statistics", fit_statistics),
+        ("robustness_model_coefficients", robustness_coefficients),
+        ("robustness_model_fit_statistics", robustness_fit_statistics),
         ("dependent_variable_descriptives", descriptives),
         ("aic_bic_comparison", aic_bic),
         ("aic_bic_ranked", aic_bic_ranked),
@@ -65,6 +71,7 @@ def write_regression_suite_outputs(
         tables.append(("professor_article_input", professor_article_input))
     for frame, schema in (
         (coefficients, RegressionCoefficientOutputSchema),
+        (robustness_coefficients, RegressionCoefficientOutputSchema),
         (fit_statistics, RegressionFitStatisticsOutputSchema),
         (descriptives, RegressionDescriptiveOutputSchema),
     ):

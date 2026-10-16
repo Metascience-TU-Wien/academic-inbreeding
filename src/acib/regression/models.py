@@ -10,7 +10,17 @@ import pandas as pd
 import structlog
 from scipy import stats
 
-from acib.regression.config import RegressionOutputs
+from acib.constants import (
+    ABSOLUTE_P_TOP_1,
+    ABSOLUTE_P_TOP_5,
+    ABSOLUTE_P_TOP_10,
+    HAZEN_PERCENTILE,
+)
+from acib.regression.config import (
+    NEGATIVE_BINOMIAL_MODEL_TYPES,
+    RegressionOutputs,
+    is_ols_model_type,
+)
 from acib.regression.constants import (
     DEFAULT_REGRESSION_DEPENDENT_VARIABLES,
 )
@@ -32,6 +42,82 @@ __all__ = [
 _logger = structlog.getLogger(__name__)
 
 DEFAULT_DEPENDENT_VARIABLES = list(DEFAULT_REGRESSION_DEPENDENT_VARIABLES)
+_ROUNDABLE_FRACTIONAL_COUNTS = frozenset({ABSOLUTE_P_TOP_1, ABSOLUTE_P_TOP_5, ABSOLUTE_P_TOP_10})
+_HALF_UP_ROUNDING_NOTE = (
+    "Rounded nonnegative fractional publication count to nearest integer (half-up)."
+)
+
+
+def prepare_model_estimation_data(
+    *, model_type: str, formula: str, data: pd.DataFrame
+) -> tuple[pd.DataFrame, str, float]:
+    """Prepare an estimator-specific response on a copy of model rows.
+
+    :param model_type: Configured estimator identifier.
+    :param formula: Formula whose left-hand side identifies the response.
+    :param data: Original complete-case model frame.
+    :return: Estimation frame, transformation description, and reporting scale.
+    :raises ValueError: If an outcome violates the selected estimator's domain.
+    """
+    outcome = formula.split("~", maxsplit=1)[0].strip()
+    if outcome not in data:
+        raise KeyError(f"Dependent variable {outcome!r} is absent from model data")
+    if model_type not in {"frac", "ppml", "nb"}:
+        return data, "none", 1.0
+
+    frame = data.copy()
+    values = pd.to_numeric(frame[outcome], errors="coerce").to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError(f"{model_type} requires finite values for outcome {outcome!r}")
+
+    transformation = "none"
+    report_scale = 1.0
+    if model_type == "frac":
+        if outcome == HAZEN_PERCENTILE:
+            if (values < 0).any() or (values > 100).any():
+                raise ValueError(
+                    f"Fractional Logit outcome {outcome!r} must be within [0, 1] or [0, 100]"
+                )
+            values = values / 100.0
+            transformation = "divided by 100 for Fractional Logit"
+            report_scale = 100.0
+        elif (values < 0).any() or (values > 1).any():
+            raise ValueError(f"Fractional Logit outcome {outcome!r} must be bounded in [0, 1]")
+        else:
+            report_scale = 100.0 if outcome.startswith("pp_top_") else 1.0
+        frame[outcome] = values
+    elif model_type == "ppml":
+        if (values < 0).any():
+            raise ValueError(f"PPML outcome {outcome!r} must be nonnegative")
+        frame[outcome] = values
+    else:
+        if (values < 0).any():
+            raise ValueError(f"Negative Binomial outcome {outcome!r} must be nonnegative")
+        if outcome in _ROUNDABLE_FRACTIONAL_COUNTS and not np.equal(values, np.floor(values)).all():
+            values = np.floor(values + 0.5)
+            transformation = _HALF_UP_ROUNDING_NOTE
+        elif not np.equal(values, np.floor(values)).all():
+            raise ValueError(
+                f"Negative Binomial outcome {outcome!r} must be integer-valued; "
+                "only fractional P_topx outcomes are rounded"
+            )
+        frame[outcome] = values
+    return frame, transformation, report_scale
+
+
+def _attach_fit_metadata(
+    fit: Any, *, outcome_transformation: str, reporting_scale: float, model_type: str
+) -> Any:
+    """Attach outcome and covariance metadata to a statsmodels result."""
+    if not hasattr(fit.model, "_acib_design_info"):
+        fit.model._acib_design_info = getattr(fit.model.data, "design_info", None)
+    fit.model._acib_outcome_transformation = outcome_transformation
+    fit.model._acib_reporting_scale = reporting_scale
+    fit.model._acib_model_type = model_type
+    fit.model._acib_covariance_estimator = (
+        "H1" if model_type == "huber" else getattr(fit, "cov_type", "nonrobust")
+    )
+    return fit
 
 
 def fit_regression_models(
@@ -100,7 +186,7 @@ def fit_regression_models(
                 mle_gradient_tolerance=mle_gradient_tolerance,
             )
             diagnostics = {}
-            if outcome_model_type in {"nb", "zinb"}:
+            if outcome_model_type in {*NEGATIVE_BINOMIAL_MODEL_TYPES, "zinb"}:
                 diagnostics = validate_mle_fit(
                     fit,
                     model_id=spec.model_id,
@@ -118,13 +204,19 @@ def fit_regression_models(
                 model_type=outcome_model_type,
                 inflation_formula=(inflation_formula if outcome_model_type == "zinb" else None),
             )
-            coefficient_rows_for_model = coefficient_rows_from_fit(
-                fit, dependent_variable, spec.model_id
+            from acib.regression.model import FittedRegressionModel
+
+            fitted_model = FittedRegressionModel(
+                dependent_variable=dependent_variable,
+                spec=spec,
+                formula=formula,
+                fit=fit,
+                model_data=model_data,
+                mle_diagnostics=diagnostics,
+                model_type=outcome_model_type,
+                inflation_formula=(inflation_formula if outcome_model_type == "zinb" else None),
             )
-            for row in coefficient_rows_for_model:
-                row["model_type"] = outcome_model_type
-                row.update(diagnostics)
-            coefficient_rows.extend(coefficient_rows_for_model)
+            coefficient_rows.extend(fitted_model.coefficients.to_dict(orient="records"))
             fit_row = fit_row_from_fit(fit, dependent_variable, spec.model_id, formula)
             fit_row["model_type"] = outcome_model_type
             fit_row["inflation_formula"] = (
@@ -165,7 +257,7 @@ def fit_regression_model(
     zinb_dispersion_power: int = 2,
     mle_gradient_tolerance: float = 1e-4,
 ) -> Any:
-    """Fit one configured OLS, Poisson, NB, or ZINB model.
+    """Fit one configured linear, robust, fractional, or count regression model.
 
     NB fits retain the original BFGS-then-Newton candidate ordering and
     diagnostics-based candidate selection. ZINB starts are initialized from
@@ -185,22 +277,50 @@ def fit_regression_model(
     :raises ValueError: If the model family or ZINB initialization is invalid.
     :raises RuntimeError: If both NB optimizers fail to produce a candidate.
     """
+    fit_data, outcome_transformation, reporting_scale = prepare_model_estimation_data(
+        model_type=model_type,
+        formula=formula,
+        data=data,
+    )
     smf = import_statsmodels_formula_api()
+    if model_type == "huber":
+        import statsmodels.api as sm
+
+        fit = smf.rlm(formula=formula, data=fit_data, M=sm.robust.norms.HuberT()).fit()
+        return _attach_fit_metadata(
+            fit,
+            outcome_transformation=outcome_transformation,
+            reporting_scale=reporting_scale,
+            model_type=model_type,
+        )
+    if is_ols_model_type(model_type):
+        ols_covariance_type = "HC3" if model_type == "olshc3" else None
+        fit_options = {"cov_type": ols_covariance_type} if ols_covariance_type else {}
+        fit = smf.ols(formula=formula, data=fit_data).fit(**fit_options)
+        return _attach_fit_metadata(
+            fit,
+            outcome_transformation=outcome_transformation,
+            reporting_scale=reporting_scale,
+            model_type=model_type,
+        )
+    if model_type == "nb":
+        covariance_type = "HC3"
     fit_options = {"cov_type": covariance_type} if covariance_type else {}
-    if model_type == "ols":
-        return smf.ols(formula=formula, data=data).fit(**fit_options)
-    if model_type not in {"pr", "nb", "zinb"}:
+    if model_type not in {"pr", *NEGATIVE_BINOMIAL_MODEL_TYPES, "zinb", "frac", "ppml"}:
         raise ValueError(f"Unsupported regression model type: {model_type!r}")
 
     import statsmodels.api as sm
     from patsy import dmatrices
 
-    fit_data = data
     first_year_center = np.nan
     rhs = formula.split("~", maxsplit=1)[1]
     rhs_terms = [term.strip() for term in rhs.split("+")]
-    if model_type == "nb" and "first_year" in rhs_terms and "first_year" in data:
-        fit_data = data.copy()
+    if (
+        model_type in NEGATIVE_BINOMIAL_MODEL_TYPES
+        and "first_year" in rhs_terms
+        and "first_year" in fit_data
+    ):
+        fit_data = fit_data.copy()
         first_year = pd.to_numeric(fit_data["first_year"], errors="coerce")
         first_year_center = float(first_year.mean())
         # Recenter this linear term to stabilize MLE; slopes and tests are invariant,
@@ -209,12 +329,39 @@ def fit_regression_model(
 
     endog_frame, exog_frame = dmatrices(formula, data=fit_data, return_type="dataframe")
     endog = endog_frame.iloc[:, 0]
-    if model_type == "pr":
-        return sm.GLM(endog, exog_frame, family=sm.families.Poisson()).fit(**fit_options)
+    if model_type in {"pr", "ppml"}:
+        poisson_covariance = "HC3" if model_type == "ppml" else covariance_type
+        poisson_options = {"cov_type": poisson_covariance} if poisson_covariance else {}
+        fit = sm.GLM(endog, exog_frame, family=sm.families.Poisson()).fit(**poisson_options)
+        fit.model._acib_design_info = exog_frame.design_info
+        if model_type == "ppml":
+            _validate_glm_fit(fit, model_type)
+        return _attach_fit_metadata(
+            fit,
+            outcome_transformation=outcome_transformation,
+            reporting_scale=reporting_scale,
+            model_type=model_type,
+        )
+    if model_type == "frac":
+        if not endog.between(0, 1).all():
+            raise ValueError("Fractional Logit outcomes must be within [0, 1]")
+        fit = sm.GLM(
+            endog,
+            exog_frame,
+            family=sm.families.Binomial(link=sm.families.links.Logit()),
+        ).fit(cov_type="HC3")
+        fit.model._acib_design_info = exog_frame.design_info
+        _validate_glm_fit(fit, model_type)
+        return _attach_fit_metadata(
+            fit,
+            outcome_transformation=outcome_transformation,
+            reporting_scale=reporting_scale,
+            model_type=model_type,
+        )
 
     from statsmodels.discrete.discrete_model import NegativeBinomial
 
-    if model_type == "nb":
+    if model_type in NEGATIVE_BINOMIAL_MODEL_TYPES:
         candidates = []
         errors: list[str] = []
         for method in ("bfgs", "newton"):
@@ -234,6 +381,14 @@ def fit_regression_model(
                 fit._nmp_optimizer_warnings = tuple(
                     f"{type(item.message).__name__}: {item.message}" for item in fit_warnings
                 )
+                fit.model._acib_design_info = exog_frame.design_info
+                fit.model._acib_first_year_center = first_year_center
+                _attach_fit_metadata(
+                    fit,
+                    outcome_transformation=outcome_transformation,
+                    reporting_scale=reporting_scale,
+                    model_type=model_type,
+                )
                 candidates.append(fit)
                 if not mle_fit_diagnostics(fit, gradient_tolerance=mle_gradient_tolerance)[
                     "mle_failure_reasons"
@@ -243,19 +398,20 @@ def fit_regression_model(
                 errors.append(f"{method}: {type(exc).__name__}: {exc}")
         if not candidates:
             raise RuntimeError("Negative Binomial optimizers failed: " + "; ".join(errors))
-        return min(
+        fit = min(
             candidates,
             key=lambda candidate: mle_candidate_score(
                 candidate,
                 gradient_tolerance=mle_gradient_tolerance,
             ),
         )
+        return fit
 
     from patsy import dmatrix
     from statsmodels.discrete.count_model import ZeroInflatedNegativeBinomialP
     from statsmodels.discrete.discrete_model import Logit
 
-    inflation_exog = dmatrix(inflation_formula, data=data, return_type="dataframe")
+    inflation_exog = dmatrix(inflation_formula, data=fit_data, return_type="dataframe")
     inflation_start = Logit((endog == 0).astype(int), inflation_exog).fit_regularized(
         alpha=zinb_regularization,
         disp=False,
@@ -302,7 +458,33 @@ def fit_regression_model(
     )
     fit._nmp_optimizer = zinb_fit_method
     fit._nmp_alpha_start = alpha_start
-    return fit
+    fit.model._acib_design_info = exog_frame.design_info
+    return _attach_fit_metadata(
+        fit,
+        outcome_transformation=outcome_transformation,
+        reporting_scale=reporting_scale,
+        model_type=model_type,
+    )
+
+
+def _validate_glm_fit(fit: Any, model_type: str) -> None:
+    """Reject non-converged or numerically invalid GLM results.
+
+    :param fit: Fitted GLM results.
+    :param model_type: Estimator identifier used in diagnostics.
+    :raises RegressionFitError: If convergence or finite-value checks fail.
+    """
+    parameters = np.asarray(fit.params, dtype=float)
+    covariance = np.asarray(fit.cov_params(), dtype=float)
+    if not bool(getattr(fit, "converged", True)):
+        raise RegressionFitError(f"{model_type} failed to converge")
+    fitted_values = np.asarray(fit.fittedvalues, dtype=float)
+    if (
+        not np.isfinite(parameters).all()
+        or not np.isfinite(covariance).all()
+        or not np.isfinite(fitted_values).all()
+    ):
+        raise RegressionFitError(f"{model_type} produced non-finite estimates or covariance")
 
 
 class RegressionFitError(RuntimeError):
@@ -550,12 +732,22 @@ def r_lm_bic(fit: Any) -> float:
 
 def fit_aic(fit: Any) -> float:
     """Return AIC using the source-compatible OLS parameter count."""
-    return r_lm_aic(fit) if hasattr(fit, "rsquared") else float(fit.aic)
+    if hasattr(fit, "rsquared"):
+        return r_lm_aic(fit)
+    return float(getattr(fit, "aic", np.nan))
 
 
 def fit_bic(fit: Any) -> float:
     """Return BIC using the source-compatible OLS parameter count."""
-    return r_lm_bic(fit) if hasattr(fit, "rsquared") else float(fit.bic)
+    if hasattr(fit, "rsquared"):
+        return r_lm_bic(fit)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The bic value is computed using the deviance formula\..*",
+            category=FutureWarning,
+        )
+        return float(getattr(fit, "bic", np.nan))
 
 
 def log_regression_summary(
@@ -610,11 +802,18 @@ def format_regression_summary(
     :param formula: Formula used to fit the model.
     :return: R-style formatted regression summary.
     """
-    if model_type != "ols":
+    if not is_ols_model_type(model_type):
         extra = f"\nInflation formula: {inflation_formula}" if inflation_formula else ""
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The bic value is computed using the deviance formula\..*",
+                category=FutureWarning,
+            )
+            fitted_summary = fit.summary().as_text()
         return (
             f"Dependent variable: {dependent_variable} | Model: {model_id} ({model_type})\n"
-            f"Formula: {formula}{extra}\n\n{fit.summary().as_text()}"
+            f"Formula: {formula}{extra}\n\n{fitted_summary}"
         )
     dependent = pd.to_numeric(data[dependent_variable], errors="coerce")
     average_predictions = average_predictions_for_binary_indicator(
@@ -627,8 +826,14 @@ def format_regression_summary(
         data=data,
         variable="is_inbred",
     )
+    model_label = f"{model_id} (olshc3)" if model_type == "olshc3" else model_id
     sections = [
-        f"Dependent variable: {dependent_variable} | Model: {model_id}",
+        f"Dependent variable: {dependent_variable} | Model: {model_label}",
+        *(
+            ["Covariance estimator: HC3 (heteroskedasticity-robust)."]
+            if model_type == "olshc3"
+            else []
+        ),
         "",
         "Call:",
         f"lm(formula = {formula}, data = df)",

@@ -39,6 +39,9 @@ def best_models_by_metric(fit_statistics: pd.DataFrame, *, metric: str) -> pd.Da
     """
     ranked = ranked_aic_bic_table(fit_statistics)
     idx = ranked.groupby("dependent_variable")[metric].idxmin()
+    idx = idx.dropna().astype(int)
+    if idx.empty:
+        return ranked.iloc[0:0].copy()
     return ranked.loc[idx].sort_values("dependent_variable").reset_index(drop=True)
 
 

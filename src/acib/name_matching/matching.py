@@ -16,6 +16,7 @@ from acib.common.names import (
     compound_match,
     normalize_person_name,
     split_name,
+    surname_compatible,
     surname_match_keys,
 )
 from acib.constants import (
@@ -42,11 +43,13 @@ from acib.name_matching.constants import (
     RESEARCHER_GIVEN_NAME,
     RESEARCHER_NAME,
     RESEARCHER_SURNAME,
-    SURNAME_AS_NAME_UNIVERSITIES,
 )
+from acib.name_matching.preprocessing import format_names
 
 _logger = structlog.getLogger(__name__)
 _NORMALIZED_NAME_COLUMN = "norm_name"
+_INPUT_RESEARCHER_GIVEN_NAME_COLUMN = "_input_researcher_given_name"
+_INPUT_RESEARCHER_SURNAME_COLUMN = "_input_researcher_surname"
 
 
 def normalize_name(name: str) -> list[str]:
@@ -169,7 +172,7 @@ def fuzzy_name_merge(
         author_df.reset_index(drop=True).copy(),
     )
     researcher[key] = researcher[researcher_col].str.lower().str.strip()
-    author[key] = author[author_col].str.lower().str.strip()
+    author[key] = author[author_col].astype("string").str.lower().str.strip()
     author_names = author[key].fillna("").astype(str).tolist()
     tokens_by_row = [set(normalize_name(name)) for name in author_names]
     token_index: dict[str, list[int]] = defaultdict(list)
@@ -200,8 +203,10 @@ def exact_name_merge(researcher_df: pd.DataFrame, author_df: pd.DataFrame) -> pd
     """
     researcher, author = researcher_df.copy(), author_df.copy()
     EXACT_NAME_COLUMN = "_exact"
-    researcher[EXACT_NAME_COLUMN] = researcher[RESEARCHER_NAME].str.lower().str.strip()
-    author[EXACT_NAME_COLUMN] = author[AUTHOR_NAME].str.lower().str.strip()
+    researcher[EXACT_NAME_COLUMN] = (
+        researcher[RESEARCHER_NAME].astype("string").str.lower().str.strip()
+    )
+    author[EXACT_NAME_COLUMN] = author[AUTHOR_NAME].astype("string").str.lower().str.strip()
     return researcher.merge(author, on=EXACT_NAME_COLUMN, how="inner")
 
 
@@ -353,34 +358,97 @@ class ResearcherMatchResult:
 
 
 def _preprocess_name_frame(frame: pd.DataFrame, *, researcher: bool) -> pd.DataFrame:
-    """Construct stage-normalized comma-separated names from source fields."""
+    """Apply the source name formatter and adapt its fields for matching.
+
+    :param frame: Researcher or candidate-author rows.
+    :param researcher: Whether the rows represent researchers.
+    :return: Rows with source-compatible normalized name fields.
+    """
     result = frame.copy()
     if researcher:
-        if PERSON_FULLNAME in result and NAME not in result:
+        result[_INPUT_RESEARCHER_GIVEN_NAME_COLUMN] = result.get(
+            RESEARCHER_GIVEN_NAME, pd.Series("", index=result.index)
+        )
+        result[_INPUT_RESEARCHER_SURNAME_COLUMN] = result.get(
+            RESEARCHER_SURNAME, pd.Series("", index=result.index)
+        )
+        if PERSON_FULLNAME in result:
             result[NAME] = result[PERSON_FULLNAME]
+        else:
+            result[NAME] = (
+                result.get(RESEARCHER_GIVEN_NAME, "").astype(str)
+                + " "
+                + result.get(RESEARCHER_SURNAME, "").astype(str)
+            )
+        result[GIVEN_NAME] = result.get(RESEARCHER_GIVEN_NAME, pd.Series("", index=result.index))
+        result = format_names(result)
+        result[RESEARCHER_GIVEN_NAME] = result[GIVEN_NAME]
+        result[RESEARCHER_SURNAME] = result[SURNAME]
+        # The corrected input contains the historical source's post-swap Vetmed
+        # name components, so they are used directly rather than swapped here.
         if UNIVERSITY_NAME in result:
-            special = result[UNIVERSITY_NAME].isin(SURNAME_AS_NAME_UNIVERSITIES)
-            result.loc[special, [RESEARCHER_GIVEN_NAME, RESEARCHER_SURNAME]] = result.loc[
-                special, [RESEARCHER_SURNAME, RESEARCHER_GIVEN_NAME]
-            ].to_numpy()
-        given, surname = RESEARCHER_GIVEN_NAME, RESEARCHER_SURNAME
-        name_column = RESEARCHER_NAME
+            corrected_vetmed = result[UNIVERSITY_NAME].eq("Vet meduni Wien")
+            result.loc[corrected_vetmed, RESEARCHER_GIVEN_NAME] = result.loc[
+                corrected_vetmed, _INPUT_RESEARCHER_GIVEN_NAME_COLUMN
+            ]
+            result.loc[corrected_vetmed, RESEARCHER_SURNAME] = result.loc[
+                corrected_vetmed, _INPUT_RESEARCHER_SURNAME_COLUMN
+            ]
+        result = result.drop(
+            columns=[_INPUT_RESEARCHER_GIVEN_NAME_COLUMN, _INPUT_RESEARCHER_SURNAME_COLUMN]
+        )
     else:
-        given, surname, name_column = GIVEN_NAME, SURNAME, AUTHOR_NAME
-    if name_column not in result and NAME in result:
-        result[name_column] = result[NAME].map(_western_name_to_comma_format)
-    if surname in result and given in result:
-        result[name_column] = (
-            result[surname].map(
-                lambda value: normalize_person_name(str(value)) if not pd.isna(value) else ""
-            )
-            + ", "
-            + result[given].map(
-                lambda value: normalize_person_name(str(value)) if not pd.isna(value) else ""
-            )
-        ).str.strip(", ")
-    result[name_column] = result[name_column].map(lambda value: _normalize_comma_name(value))
-    return result.loc[result[name_column].ne("")].reset_index(drop=True)
+        if AUTHOR_NAME in result:
+            if NAME not in result:
+                result[NAME] = result[AUTHOR_NAME]
+            else:
+                display_name = result[NAME].astype("string").str.strip()
+                missing_display_name = display_name.isna() | display_name.eq("")
+                result.loc[missing_display_name, NAME] = result.loc[
+                    missing_display_name, AUTHOR_NAME
+                ]
+        elif NAME not in result:
+            result[NAME] = ""
+        result = format_names(result)
+        split = result[NAME].astype(str).str.split(",", n=1, expand=True)
+        split = split.reindex(columns=[0, 1], fill_value="")
+        split_surname = split[0].fillna("").str.strip()
+        split_given = split[1].fillna("").str.strip()
+        structured_surname = result.get(SURNAME, pd.Series(pd.NA, index=result.index))
+        structured_given = result.get(GIVEN_NAME, pd.Series(pd.NA, index=result.index))
+        compatible = structured_surname.notna() & structured_surname.astype(str).str.strip().ne("")
+        compatible &= split_surname.ne("")
+        compatible &= pd.Series(
+            [
+                surname_compatible(str(left), str(right))
+                for left, right in zip(structured_surname, split_surname, strict=True)
+            ],
+            index=result.index,
+        )
+        final_surname = split_surname.copy()
+        final_given = split_given.copy()
+        for index in result.index[compatible]:
+            surname_options = [split_surname.at[index], str(structured_surname.at[index])]
+            given_options = [split_given.at[index], str(structured_given.at[index])]
+            final_surname.at[index] = max(surname_options, key=len)
+            final_given.at[index] = max(given_options, key=len)
+        result[SURNAME] = final_surname
+        result[GIVEN_NAME] = final_given
+        result[AUTHOR_NAME] = result.apply(
+            lambda row: f"{normalize_person_name(str(row[SURNAME]))}, "
+            f"{normalize_person_name(str(row[GIVEN_NAME]))}".strip(", "),
+            axis=1,
+        )
+        valid = result[SURNAME].astype(str).str.strip().ne("")
+        valid &= result[GIVEN_NAME].astype(str).str.strip().ne("")
+        result = result.loc[valid]
+    if researcher:
+        result[RESEARCHER_NAME] = result.apply(
+            lambda row: f"{normalize_person_name(str(row[RESEARCHER_SURNAME]))}, "
+            f"{normalize_person_name(str(row[RESEARCHER_GIVEN_NAME]))}".strip(", "),
+            axis=1,
+        )
+    return result.reset_index(drop=True)
 
 
 def _western_name_to_comma_format(value: object) -> str:
@@ -411,24 +479,15 @@ def _western_name_to_comma_format(value: object) -> str:
     return f"{' '.join(surname_tokens)}, {' '.join(tokens[:index + 1])}"
 
 
-def _normalize_comma_name(value: object) -> str:
-    if pd.isna(value):
-        return ""
-    text = str(value)
-    if "," not in text:
-        return normalize_person_name(text)
-    surname, given = text.split(",", 1)
-    return f"{normalize_person_name(surname)}, {normalize_person_name(given)}".strip(", ")
-
-
 def _possibilities(researchers: pd.DataFrame, authors: pd.DataFrame) -> pd.DataFrame:
     """Construct prefix-blocked author possibilities for each researcher."""
     frame = researchers.copy()
-    frame[AUTHOR_NAME_PREFIX] = frame[RESEARCHER_NAME].str[:3]
+    frame[AUTHOR_NAME_PREFIX] = frame[RESEARCHER_NAME].astype("string").str[:3]
+    author_names = authors[AUTHOR_NAME].astype("string")
     for column in (AUTHOR_ID, AUTHOR_NAME):
         frame[column] = frame[AUTHOR_NAME_PREFIX].apply(
             lambda prefix, column=column: authors.loc[
-                authors[AUTHOR_NAME].str.startswith(prefix, na=False), column
+                author_names.str.startswith(prefix, na=False), column
             ].tolist()
         )
     frame = frame.explode([AUTHOR_ID, AUTHOR_NAME]).reset_index(drop=True)
@@ -493,6 +552,9 @@ def match_researchers(
                     organization=organization,
                 )
                 continue
+            selected_researchers = selected_researchers.drop_duplicates(
+                subset=RESEARCHER_NAME
+            ).sort_values(RESEARCHER_NAME, kind="mergesort")
             selected_authors = (
                 authors.loc[authors[MAPPING_ID].isin(mapped_ids)]
                 if MAPPING_ID in authors

@@ -11,10 +11,17 @@ import numpy as np
 import pandas as pd
 import structlog
 
+from acib.common.subjects import (
+    ASJC_PARENT_LABELS,
+    map_organization_to_asjc_codes,
+    parent_code,
+)
 from acib.constants import (
     AFFILIATION_ID,
     AFFILIATION_ID_CURRENT,
     AFFILIATION_ID_PARENT,
+    AFFILIATION_ID_PARENT_CHATGPT,
+    AFFILIATION_ID_PARENT_SPLINK_CHATGPT,
     AFFILIATION_IDS_CURRENT,
     AFFILIATION_NAME,
     AUTHOR_ID,
@@ -25,6 +32,7 @@ from acib.constants import (
 from acib.name_matching.config import NameMatchingConfig
 from acib.name_matching.constants import (
     CURRENT_AFFILIATION,
+    IS_ALTERNATIVE,
     MATCH_PRIORITY,
     MATCHING_OUTPUT_COLUMNS,
     NAME,
@@ -44,6 +52,70 @@ from acib.schemas import (
 from acib.schemas.affiliations import parse_nullable_affiliation_ids
 
 _logger = structlog.getLogger(__name__)
+
+_SOURCE_OUTPUT_COLUMN_ORDER = (
+    "sc_id",
+    "person_title",
+    "person_fullname",
+    "person_role",
+    "person_link",
+    "person_functions",
+    "institute_link",
+    "organization",
+    "university_name",
+    "person_grade",
+    "person_email",
+    "person_phone",
+    "person_location_link",
+    "orcid",
+    "scopus",
+    "researchgate",
+    "organization_names",
+    "organization_names_relevant",
+    "inferred_asjc_evidence",
+    "inferred_asjc_codes",
+    "inferred_asjc_parent_codes",
+    "inferred_asjc_labels",
+    "inferred_asjc_parent_labels",
+    "has_inferred_asjc",
+    "inferred_asjc_max_score",
+    "inferred_asjc_confidence",
+    "organization_names_json",
+    "organization_names_relevant_json",
+    "inferred_asjc_evidence_json",
+    "inferred_asjc_codes_json",
+    "inferred_asjc_parent_codes_json",
+    "inferred_asjc_labels_json",
+    "inferred_asjc_parent_labels_json",
+    "cv_link",
+    "is_alternative",
+    "person_surname",
+    "person_name",
+    "initials",
+    "author_id",
+    "priority",
+    "researcher_name",
+    "eid",
+    "name",
+    "indexed_name",
+    "given_name",
+    "surname",
+    "publication_range",
+    "name_variants",
+    "subject_areas",
+    "historical_identifier",
+    "affiliation_id",
+    "affiliation_id_parent",
+    "affiliation_name",
+    "affiliation_id_parent_chatgpt",
+    "affiliation_id_parent_splink_chatgpt",
+    "affiliation_ids_current",
+    "author_name",
+)
+
+INFERRED_ASJC_CODES_COLUMN = "inferred_asjc_codes"
+INFERRED_ASJC_LABELS_COLUMN = "inferred_asjc_labels"
+ORGANIZATION_ASJC_SOURCE_COLUMNS = ("organization", "institute_name", "faculty", "faculty_name")
 
 
 def normalize_existing_scopus_author_id(value: object) -> object:
@@ -135,6 +207,8 @@ def sort_resolved_matches(matches: pd.DataFrame) -> pd.DataFrame:
             EID,
             AFFILIATION_ID,
             AFFILIATION_ID_PARENT,
+            AFFILIATION_ID_PARENT_CHATGPT,
+            AFFILIATION_ID_PARENT_SPLINK_CHATGPT,
             AFFILIATION_NAME,
         )
         if column in matches
@@ -142,6 +216,50 @@ def sort_resolved_matches(matches: pd.DataFrame) -> pd.DataFrame:
     if not columns:
         return matches.reset_index(drop=True)
     return matches.sort_values(columns, kind="mergesort", na_position="last").reset_index(drop=True)
+
+
+def add_inferred_asjc_columns(researchers: pd.DataFrame) -> pd.DataFrame:
+    """Infer ASJC codes and labels from available organization metadata.
+
+    Existing nonblank code values are retained, matching the original workflow.
+
+    :param researchers: Researcher metadata rows.
+    :return: A copy with inferred-code and label columns populated when possible.
+    """
+    source_columns = [
+        column for column in ORGANIZATION_ASJC_SOURCE_COLUMNS if column in researchers
+    ]
+    if not source_columns:
+        return researchers.copy()
+    result = researchers.copy()
+    if INFERRED_ASJC_CODES_COLUMN not in result:
+        result[INFERRED_ASJC_CODES_COLUMN] = ""
+    if INFERRED_ASJC_LABELS_COLUMN not in result:
+        result[INFERRED_ASJC_LABELS_COLUMN] = ""
+    for index, row in result.iterrows():
+        if not _is_blank_value(row[INFERRED_ASJC_CODES_COLUMN]):
+            continue
+        codes = map_organization_to_asjc_codes([row[column] for column in source_columns])
+        if not codes:
+            continue
+        result.at[index, INFERRED_ASJC_CODES_COLUMN] = ",".join(map(str, codes))
+        if _is_blank_value(row[INFERRED_ASJC_LABELS_COLUMN]):
+            labels = sorted(
+                {
+                    ASJC_PARENT_LABELS[parent_code(code)]
+                    for code in codes
+                    if parent_code(code) in ASJC_PARENT_LABELS
+                }
+            )
+            result.at[index, INFERRED_ASJC_LABELS_COLUMN] = ";".join(labels)
+    return result
+
+
+def _is_blank_value(value: object) -> bool:
+    """Return whether an inferred-ASJC cell contains no meaningful value."""
+    if value is None or pd.isna(value):
+        return True
+    return str(value).strip().lower() in {"", "nan", "none", "null", "[]", "<na>"}
 
 
 def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) -> pd.DataFrame:
@@ -247,20 +365,50 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
         )
         matches = result.matched
     resolved = pd.concat([pre_resolved, matches], ignore_index=True, sort=False)
+    # Keep researcher input values authoritative. The resolved matching frame
+    # contains projected researcher fields used during matching, some of which
+    # overlap with the original input metadata; retain only match-owned output
+    # fields before joining so pandas suffix precedence cannot replace metadata.
+    matching_metadata_columns = {
+        RESEARCHER_ID,
+        RESEARCHER_NAME,
+        *MATCHING_OUTPUT_COLUMNS,
+    }
+    resolved = resolved.loc[
+        :, [column for column in resolved.columns if column in matching_metadata_columns]
+    ]
+    researcher_output_metadata = pd.read_csv(
+        config.researcher_file_path,
+        dtype="string",
+        keep_default_na=False,
+    )
+    researcher_output_metadata[RESEARCHER_ID] = researcher_metadata[RESEARCHER_ID].array
+    researcher_output_metadata = researcher_output_metadata.drop(
+        columns=(
+            [config.existing_scopus_author_id_column]
+            if config.existing_scopus_author_id_column is not None
+            else []
+        ),
+        errors="ignore",
+    )
     resolved_row_count = len(resolved)
-    output = resolved.merge(
-        researcher_metadata,
+    output = researcher_output_metadata.merge(
+        resolved,
         on=RESEARCHER_ID,
-        how="left",
+        how="inner",
         sort=False,
-        validate="many_to_one",
-        suffixes=("", "_researcher_metadata"),
+        validate="one_to_many",
     )
     if len(output) != resolved_row_count:
         raise RuntimeError(
             "Restoring researcher metadata changed the number of resolved match rows"
         )
     output = sort_resolved_matches(output)
+    if IS_ALTERNATIVE in output:
+        output[IS_ALTERNATIVE] = output[MATCH_PRIORITY].eq(0).map({True: False, False: pd.NA})
+    if "initials" not in output:
+        output["initials"] = pd.NA
+    output.loc[output[MATCH_PRIORITY].eq(0), "initials"] = False
     for column in MATCHING_OUTPUT_COLUMNS:
         if column not in output:
             if output.empty and column in {RESEARCHER_ID, AUTHOR_ID, MATCH_PRIORITY}:
@@ -268,13 +416,20 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
             else:
                 output[column] = pd.Series(pd.NA, index=output.index, dtype="object")
     output = MatchingOutputSchema.validate(output, lazy=True)
+    ordered_columns = [column for column in _SOURCE_OUTPUT_COLUMN_ORDER if column in output]
+    ordered_columns.extend(column for column in output.columns if column not in ordered_columns)
+    output = output.loc[:, ordered_columns]
     _logger.info(
         "Writing resolved name matches",
         output_rows=len(output),
         output_path=str(output_path),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output.to_csv(output_path, index=False, encoding=config.encoding)
+    serialized_output = output.copy()
+    for column in (AFFILIATION_ID, AFFILIATION_ID_PARENT):
+        if column in serialized_output:
+            serialized_output[column] = serialized_output[column].astype("Float64")
+    serialized_output.to_csv(output_path, index=False, encoding=config.encoding)
     _logger.info(
         "Finished name matching run",
         total_runtime_seconds=round(time.perf_counter() - started_at, 3),

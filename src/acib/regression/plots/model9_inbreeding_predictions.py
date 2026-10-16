@@ -21,7 +21,8 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from patsy import build_design_matrices
 
-from acib.regression.constants import PAPER_REGRESSION_MODEL_TERMS
+from acib.regression.constants import PAPER_REGRESSION_MODEL_TERMS, TITLE
+from acib.regression.plots.professor_violin import DEFAULT_PROFESSOR_TITLE_ORDER
 from acib.regression.plots.style import (
     BACKGROUND_COLOR,
     CI_COLOR,
@@ -70,6 +71,8 @@ class Model9InbreedingPredictionPlotConfig:
     outcomes: tuple[Model9InbreedingOutcome, ...] = DEFAULT_MODEL9_INBREEDING_OUTCOMES
     statuses: tuple[bool, ...] = STATUS_ORDER
     model_id: str = "m9"
+    title: str | None = None
+    group_by_title: bool = False
     figure_size: tuple[float, float] = (15.0, 7.2)
     output_formats: tuple[str, ...] = ("png",)
     dpi: int = 300
@@ -200,34 +203,65 @@ def prediction_rows(*, result: Any, config: Model9InbreedingPredictionPlotConfig
         model = result.models.get((outcome.column, config.model_id))
         if model is None:
             continue
-        available = {bool(value) for value in model.model_data["is_inbred"].dropna().unique()}
-        for status_index, status in enumerate(config.statuses):
-            if status not in available:
+        model_data = model.model_data
+        if config.title is not None:
+            if TITLE not in model_data.columns:
                 continue
-            estimate = average_adjusted_prediction(model=model, is_inbred=status)
-            rows.append(
-                {
-                    "dependent_variable": outcome.column,
-                    "outcome_label": outcome.label,
-                    "outcome_order": outcome_index,
-                    "is_inbred": status,
-                    "status_label": STATUS_LABELS[status],
-                    "status_order": status_index,
-                    **{key: value * outcome.scale for key, value in estimate.items()},
-                    "n_obs": int(model.fit.nobs),
-                }
+            model_data = model_data.loc[model_data[TITLE].eq(config.title)]
+        if model_data.empty:
+            continue
+        titles: tuple[str | None, ...]
+        if config.group_by_title:
+            if TITLE not in model_data.columns:
+                continue
+            titles = tuple(
+                title
+                for title in DEFAULT_PROFESSOR_TITLE_ORDER
+                if model_data[TITLE].eq(title).any()
             )
-    return pd.DataFrame(rows).sort_values(["outcome_order", "status_order"]).reset_index(drop=True)
+        else:
+            titles = (config.title,)
+        for title in titles:
+            title_data = (
+                model_data.loc[model_data[TITLE].eq(title)] if title is not None else model_data
+            )
+            available = {bool(value) for value in title_data["is_inbred"].dropna().unique()}
+            for status_index, status in enumerate(config.statuses):
+                if status not in available:
+                    continue
+                estimate = average_adjusted_prediction(
+                    model=model, is_inbred=status, model_data=title_data
+                )
+                rows.append(
+                    {
+                        "dependent_variable": outcome.column,
+                        "outcome_label": outcome.label,
+                        "outcome_order": outcome_index,
+                        "title": title,
+                        "is_inbred": status,
+                        "status_label": STATUS_LABELS[status],
+                        "status_order": status_index,
+                        **{key: value * outcome.scale for key, value in estimate.items()},
+                        "n_obs": len(title_data),
+                    }
+                )
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["outcome_order", "title", "status_order"], na_position="first")
+        .reset_index(drop=True)
+    )
 
 
-def average_adjusted_prediction(*, model: Any, is_inbred: bool) -> dict[str, float]:
+def average_adjusted_prediction(
+    *, model: Any, is_inbred: bool, model_data: pd.DataFrame | None = None
+) -> dict[str, float]:
     """Estimate the average adjusted linear prediction and confidence interval.
 
     :param model: Fitted model wrapper.
     :param is_inbred: Status set for every row in the model's estimation data.
     :return: Estimate, standard error, and confidence limits.
     """
-    new_data = model.model_data.copy()
+    new_data = (model.model_data if model_data is None else model_data).copy()
     new_data["is_inbred"] = is_inbred
     matrix = build_design_matrices(
         [model.fit.model.data.design_info], new_data, return_type="dataframe"
@@ -255,6 +289,16 @@ def plot_model9_inbreeding_predictions(
     figure, grid = plt.subplots(2, 2, figsize=config.figure_size, squeeze=False)
     axes = tuple(grid.ravel())
     figure.patch.set_facecolor(BACKGROUND_COLOR)
+    if config.title is not None:
+        figure.suptitle(config.title, fontsize=22, fontweight="bold", y=0.995)
+    titles = tuple(
+        title
+        for title in DEFAULT_PROFESSOR_TITLE_ORDER
+        if config.group_by_title and data.predictions["title"].eq(title).any()
+    )
+    title_positions = {
+        title: len(titles) - title_index - 1 for title_index, title in enumerate(titles)
+    }
     for index, (axis, outcome) in enumerate(zip(axes, config.outcomes, strict=False)):
         panel = data.predictions[data.predictions["dependent_variable"].eq(outcome.column)]
         axis.set_facecolor(BACKGROUND_COLOR)
@@ -263,9 +307,14 @@ def plot_model9_inbreeding_predictions(
             continue
         for row in panel.to_dict(orient="records"):
             status = bool(row["is_inbred"])
+            y_position = (
+                title_positions[row["title"]] + (0.16 if not status else -0.16)
+                if config.group_by_title
+                else (0.54 if not status else 0.46)
+            )
             axis.errorbar(
                 row["estimate"],
-                0.54 if not status else 0.46,
+                y_position,
                 xerr=[[row["estimate"] - row["conf_low"]], [row["conf_high"] - row["estimate"]]],
                 fmt="o",
                 color=INBREEDING_COLORS[status],
@@ -278,23 +327,30 @@ def plot_model9_inbreeding_predictions(
                 markeredgewidth=0.8,
                 zorder=3,
             )
-            axis.text(
-                row["conf_high"] + max((panel.conf_high.max() - panel.conf_low.min()) * 0.04, 0.05),
-                0.54 if not status else 0.46,
-                f"{row['estimate']:.1f}",
-                ha="left",
-                va="center",
-                fontsize=18,
-                color="#2D2A26",
-            )
-        limits = outcome.x_limits or (panel.conf_low.min(), panel.conf_high.max())
+            if not config.group_by_title:
+                axis.text(
+                    row["conf_high"]
+                    + max((panel.conf_high.max() - panel.conf_low.min()) * 0.04, 0.05),
+                    y_position,
+                    f"{row['estimate']:.1f}",
+                    ha="left",
+                    va="center",
+                    fontsize=18,
+                    color="#2D2A26",
+                )
+        limits, ticks = prediction_axis_limits(panel=panel, outcome=outcome)
         axis.set_xlim(*limits)
-        if outcome.ticks:
-            axis.set_xticks(outcome.ticks)
+        if ticks:
+            axis.set_xticks(ticks)
         axis.set_title(outcome.label, loc="left", fontsize=22, fontweight="bold")
-        axis.set_ylim(0.39, 0.61)
-        axis.set_yticks([0.54, 0.46])
-        axis.set_yticklabels(["Non-inbred", "Inbred"] if index % 2 == 0 else [], fontsize=22)
+        if config.group_by_title:
+            axis.set_ylim(-0.5, len(titles) - 0.5)
+            axis.set_yticks([title_positions[title] for title in titles])
+            axis.set_yticklabels(titles, fontsize=22)
+        else:
+            axis.set_ylim(0.39, 0.61)
+            axis.set_yticks([0.54, 0.46])
+            axis.set_yticklabels(["Non-inbred", "Inbred"] if index % 2 == 0 else [], fontsize=22)
         axis.set_ylabel(None)
         axis.set_xlabel(None)
         axis.grid(axis="x", color=GRID_COLOR, linewidth=0.8)
@@ -307,6 +363,64 @@ def plot_model9_inbreeding_predictions(
         axis.tick_params(axis="y", length=0)
     for axis in axes[len(config.outcomes) :]:
         axis.set_visible(False)
+    if config.group_by_title:
+        from matplotlib.lines import Line2D
+
+        legend_handles = [
+            Line2D(
+                [],
+                [],
+                color=INBREEDING_COLORS[status],
+                marker="o",
+                markersize=9,
+                linewidth=2,
+                label=STATUS_LABELS[status],
+            )
+            for status in config.statuses
+        ]
+        figure.legend(
+            handles=legend_handles,
+            loc="upper center",
+            ncol=len(legend_handles),
+            frameon=False,
+            fontsize=20,
+            bbox_to_anchor=(0.5, 1.0),
+        )
     figure.supxlabel("Average adjusted prediction [%]", fontsize=22, y=0.052)
-    figure.subplots_adjust(left=0.14, right=0.995, top=0.965, bottom=0.16, wspace=0.12, hspace=0.32)
+    figure.subplots_adjust(
+        left=0.16 if config.group_by_title else 0.14,
+        right=0.99,
+        top=0.89 if config.group_by_title else (0.91 if config.title is not None else 0.965),
+        bottom=0.16,
+        wspace=0.25 if config.group_by_title else 0.12,
+        hspace=0.38 if config.group_by_title else 0.32,
+    )
     return figure, axes
+
+
+def prediction_axis_limits(
+    *, panel: pd.DataFrame, outcome: Model9InbreedingOutcome
+) -> tuple[tuple[float, float], tuple[float, ...]]:
+    """Choose an x-axis that contains confidence intervals and value labels.
+
+    Use the publication-scale limits and ticks when the estimates fit. Otherwise,
+    derive limits from this panel and let Matplotlib choose readable tick marks.
+
+    :param panel: Prediction rows for one outcome.
+    :param outcome: Display scale and preferred publication-axis settings.
+    :return: Axis limits and optional explicit ticks.
+    """
+    lower = float(panel["conf_low"].min())
+    upper = float(panel["conf_high"].max())
+    interval_span = upper - lower
+    scale = max(interval_span, abs(lower) * 0.02, abs(upper) * 0.02, 0.1)
+    label_offset = max(interval_span * 0.04, 0.05)
+    label_end = upper + label_offset
+
+    if outcome.x_limits is not None:
+        preferred_lower, preferred_upper = outcome.x_limits
+        if lower >= preferred_lower and label_end <= preferred_upper:
+            return outcome.x_limits, outcome.ticks
+
+    limits = (lower - scale * 0.08, label_end + scale * 0.2)
+    return limits, ()

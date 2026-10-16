@@ -1,0 +1,122 @@
+[data]
+researcher_file_path = "data/input/all_scraped_merged_labelled_with_scopus_vetmed_corrected.csv"
+candidate_authors_file = "data/input/authors_scopus_extended.csv"
+article_author_file_path = "data/input/article.parquet"
+article_reference_file_path = "data/input/article_reference.parquet"
+author_affiliations_file_path = "data/input/author_affiliation.gpkg"
+article_impact_file_path = "data/input/impact_indicators_and_more.csv"
+
+[name_matching]
+enable_organisation_filter = true
+existing_scopus_author_id_column = "scopus_author_id"
+max_workers = 3
+
+# Produces resolved researcher-to-author matches consumed by disambiguation and mobility.
+[name_matching.outputs]
+directory = "data/output/name_matching"
+
+[name_disambiguation]
+max_workers = 3
+enable_reporting = false
+same_author_score_threshold = 6.0
+possible_author_score_threshold = 3.0
+
+# Consumes resolved researchers; mobility consumes the final author selection.
+[name_disambiguation.outputs]
+directory = "data/output/name_disambiguation"
+
+[mobility]
+enable_university_affiliation_inbreeding_detection = true
+enable_coaffiliated_professor_merge = true
+professor_title_pattern = "prof"
+early_affiliation_method = "first_n_years"
+first_affiliation_publication_count = 3
+first_affiliation_year_count = 2
+min_publication_history_years = 0
+max_workers = 5
+
+# Consumes disambiguated authors and matching metadata; regression consumes its proxy.
+[mobility.outputs]
+directory = "data/output/mobility"
+
+
+[regression]
+mle_failure_policy = "error"
+mle_gradient_tolerance = 0.0001
+print_model_summaries = true
+drop_missing = true
+min_publications = 1
+professor_title_pattern = "prof"
+exclude_titles = []
+rebuild_input = true
+
+[regression.dependent_variables]
+# Relative impact outcomes use OLS coefficients with HC3-robust standard errors.
+hazen_perc_med = "olshc3"
+pp_top_10 = "olshc3"
+pp_top_5 = "olshc3"
+pp_top_1 = "olshc3"
+P_top10 = "olshc3"
+P_top5 = "olshc3"
+P_top1 = "olshc3"
+n_public = "nb"
+
+[regression.outcome_metadata.hazen_perc_med]
+outcome_type = "relative"
+alias = "mwPR"
+
+[regression.outcome_metadata.pp_top_10]
+outcome_type = "relative"
+alias = "PP(top 10\\%)"
+
+[regression.outcome_metadata.pp_top_5]
+outcome_type = "relative"
+alias = "PP(top 5\\%)"
+
+[regression.outcome_metadata.pp_top_1]
+outcome_type = "relative"
+alias = "PP(top 1\\%)"
+
+[regression.outcome_metadata.n_public]
+outcome_type = "absolute"
+alias = "Publications"
+
+[regression.outcome_metadata.P_top10]
+outcome_type = "absolute"
+alias = "P(top 10\\%)"
+
+[regression.outcome_metadata.P_top5]
+outcome_type = "absolute"
+alias = "P(top 5\\%)"
+
+[regression.outcome_metadata.P_top1]
+outcome_type = "absolute"
+alias = "P(top 1\\%)"
+
+[regression.outputs]
+# Produces regression_input for statistical matching; LaTeX and plots are subdirectories.
+directory = "data/output/regression/base"
+
+[statistical_matching]
+outcomes = ["hazen_perc_med", "pp_top_10", "pp_top_5", "pp_top_1", "n_public", "P_top10", "P_top5", "P_top1"]
+covariates = ["academic_age", "title", "first_year", "life_sci_share", "health_sci_share", "soc_hum_share", "multi_area_share"]
+methods = ["PSM", "IPTW", "CEM", "EB"]
+treatment_variable = "is_inbred"
+treated_value = true
+estimand = "ATT"
+exclude_titles = ["FH-Ass. Prof."]
+balance_threshold = 0.10
+covariance_type = "HC3"
+drop_missing = true
+
+[statistical_matching.cem_cutpoints]
+academic_age = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+first_year = [1980.0, 1990.0, 2000.0, 2005.0, 2010.0, 2015.0, 2020.0]
+life_sci_share = [0.0, 0.25, 0.5, 0.75, 1.0]
+health_sci_share = [0.0, 0.25, 0.5, 0.75, 1.0]
+soc_hum_share = [0.0, 0.25, 0.5, 0.75, 1.0]
+multi_area_share = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+# Consumes regression_input and writes matching tables, formulas, LaTeX, and plots here.
+[statistical_matching.outputs]
+directory = "data/output/statistical_matching"
