@@ -11,7 +11,6 @@ from pathlib import Path
 import pandas as pd
 import structlog
 
-from acib.constants import HAZEN_PERCENTILE
 from acib.regression.analysis_config import (
     OUTCOME_DISPLAY_LABELS,
     RegressionSuiteConfig,
@@ -136,7 +135,11 @@ class RegressionSuiteResult:
         )
 
     def latex_tables_for_data(self, *, data: pd.DataFrame | None) -> dict[str, str]:
-        """Render available LaTeX reports, keyed by their original filenames."""
+        """Render the standard LaTeX reports for configured model specifications.
+
+        :param data: Optional regression input for descriptive statistics.
+        :return: LaTeX reports keyed by output filename.
+        """
         from acib.regression.latex import (
             absolute_performance_latex_table,
             absolute_top_percentile_latex_table,
@@ -150,37 +153,40 @@ class RegressionSuiteResult:
             research_performance_latex_table,
         )
 
+        latex_models = self.models
         tables = {
             f"research_performance_{mid}.tex": research_performance_latex_table(
-                self.models,
+                latex_models,
                 model_id=mid,
                 outcomes=self.relative_performance_outcomes,
                 outcome_aliases=self.outcome_aliases,
             )
             for mid in renderable_research_performance_model_ids(
-                self.models, outcomes=self.relative_performance_outcomes
+                latex_models, outcomes=self.relative_performance_outcomes
             )
         }
         tables.update(
             {
                 f"absolute_performance_{mid}.tex": absolute_performance_latex_table(
-                    self.models,
+                    latex_models,
                     model_id=mid,
                     outcomes=self.absolute_performance_outcomes,
                     outcome_aliases=self.outcome_aliases,
                 )
                 for mid in renderable_absolute_performance_model_ids(
-                    self.models, outcomes=self.absolute_performance_outcomes
+                    latex_models, outcomes=self.absolute_performance_outcomes
                 )
             }
         )
         tables.update(
             {
                 f"model_comparison_{outcome}.tex": model_comparison_latex_table(
-                    self.models, dependent_variable=outcome, outcome_aliases=self.outcome_aliases
+                    latex_models,
+                    dependent_variable=outcome,
+                    outcome_aliases=self.outcome_aliases,
                 )
                 for outcome in renderable_model_comparison_outcomes(
-                    self.models,
+                    latex_models,
                     outcomes=(
                         *self.relative_performance_outcomes,
                         *self.absolute_performance_outcomes,
@@ -190,20 +196,20 @@ class RegressionSuiteResult:
         )
         if set(self.absolute_performance_outcomes).issuperset(
             ABSOLUTE_TOP_PERCENTILE_OUTCOMES
-        ) and can_render_absolute_top_percentile_latex_table(self.models, model_id="m9"):
+        ) and can_render_absolute_top_percentile_latex_table(latex_models, model_id="m9"):
             tables["model9_absolute_top_percentile_robustness.tex"] = (
                 absolute_top_percentile_latex_table(
-                    self.models, model_id="m9", outcome_aliases=self.outcome_aliases
+                    latex_models, model_id="m9", outcome_aliases=self.outcome_aliases
                 )
             )
         if can_render_model10_without_international_mobility_table(
-            self.models,
+            latex_models,
             relative_outcomes=self.relative_performance_outcomes,
             absolute_outcomes=self.absolute_performance_outcomes,
         ):
             tables["performance_without_international_mobility.tex"] = (
                 model10_without_international_mobility_latex_table(
-                    self.models,
+                    latex_models,
                     relative_outcomes=self.relative_performance_outcomes,
                     absolute_outcomes=self.absolute_performance_outcomes,
                     outcome_aliases=self.outcome_aliases,
@@ -212,7 +218,7 @@ class RegressionSuiteResult:
         if data is not None:
             tables["descriptive_statistics.tex"] = descriptive_statistics_latex_table(
                 data,
-                models=self.models,
+                models=latex_models,
                 model_id="m9",
                 absolute_performance_outcomes=self.absolute_performance_outcomes,
             )
@@ -434,9 +440,6 @@ class RegressionSuite:
         """Fit one model, retaining the source missingness and diagnostic rules."""
         formula = spec.formula(dependent_variable, data=self.data)
         frame = model_frame(self.data, formula=formula, drop_missing=self.config.drop_missing)
-        if model_type == "fractional_logit" and dependent_variable == HAZEN_PERCENTILE:
-            frame = frame.copy()
-            frame[dependent_variable] = pd.to_numeric(frame[dependent_variable]) / 100.0
         if model_type == "zinb":
             columns = required_columns_from_formula(inflation_formula)
             missing = sorted(column for column in columns if column not in self.data)
@@ -474,7 +477,7 @@ class RegressionSuite:
                 policy=self.config.mle_failure_policy,
                 gradient_tolerance=self.config.mle_gradient_tolerance,
             )
-            if model_type in {"nb", "nbhc3", "zinb"}
+            if model_type in {"nb", "zinb"}
             else {}
         )
         return FittedRegressionModel(

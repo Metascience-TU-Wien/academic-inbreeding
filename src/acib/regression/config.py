@@ -35,11 +35,18 @@ from acib.regression.constants import (
 )
 
 RegressionModelType = Literal[
-    "ols", "olshc3", "pr", "nb", "nbhc3", "zinb", "huber", "fractional_logit", "ppml"
+    "ols",
+    "olshc3",
+    "pr",
+    "nb",
+    "zinb",
+    "huber",
+    "frac",
+    "ppml",
 ]
 RegressionOutcomeType = Literal["relative", "absolute"]
 OLS_MODEL_TYPES = frozenset({"ols", "olshc3"})
-NEGATIVE_BINOMIAL_MODEL_TYPES = frozenset({"nb", "nbhc3"})
+NEGATIVE_BINOMIAL_MODEL_TYPES = frozenset({"nb"})
 
 
 def is_ols_model_type(model_type: str) -> bool:

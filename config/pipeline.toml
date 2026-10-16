@@ -48,7 +48,7 @@ drop_missing = true
 min_publications = 1
 professor_title_pattern = "prof"
 exclude_titles = []
-rebuild_input = false
+rebuild_input = true
 
 [regression.dependent_variables]
 # Relative impact outcomes use OLS coefficients with HC3-robust standard errors.
@@ -59,7 +59,7 @@ pp_top_1 = "olshc3"
 P_top10 = "olshc3"
 P_top5 = "olshc3"
 P_top1 = "olshc3"
-n_public = "nbhc3"
+n_public = "nb"
 
 [regression.outcome_metadata.hazen_perc_med]
 outcome_type = "relative"
@@ -95,7 +95,7 @@ alias = "P(top 1\\%)"
 
 [regression.outputs]
 # Produces regression_input for statistical matching; LaTeX and plots are subdirectories.
-directory = "data/output/regression/ols_hc3"
+directory = "data/output/regression/base"
 
 [statistical_matching]
 outcomes = ["hazen_perc_med", "pp_top_10", "pp_top_5", "pp_top_1", "n_public", "P_top10", "P_top5", "P_top1"]

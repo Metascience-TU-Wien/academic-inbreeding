@@ -188,7 +188,7 @@ def test_configured_performance_latex_outputs_are_written_to_configured_director
     assert "Publications" in absolute and r"P(top 10\%)" in absolute
     assert r"\textbf{$P$}" in absolute
     assert r"P{>}|t|" not in absolute
-    assert "OLS $p$-values are based on $t$-tests" in absolute
+    assert "OLS uses conventional standard errors and $t$-test inference" in absolute
 
     outputs = outputs_under(tmp_path)
     result.write(outputs, data=data)

@@ -1,20 +1,211 @@
 # Migration plan and results
 
+## Approved regression estimator refactor
+
+- This section supersedes the earlier regression-robustness-bundle description
+  below. Each outcome now selects one estimator independently. Supported values
+  are `ols`, `olshc3`, `huber`, `frac`, `ppml`, `nb`, `pr`, and `zinb`;
+  `fractional_logit` is renamed `frac`, and the former `nbhc3` behavior is
+  represented by `nb` (negative-binomial likelihood with HC3 covariance).
+  Combined values `huberfrac`, `huberppml`, and `nbppml` are rejected. `pr` and
+  `zinb` remain available as independent legacy estimators.
+- `frac`, `ppml`, and `nb` preserve raw fitted parameters in result objects and
+  add separately identified average marginal effects. Continuous predictors
+  use average derivatives; categorical predictors use average predicted
+  differences from the Patsy reference category. Delta-method standard errors
+  and p-values use the fitted covariance matrix. Fractional-logit effects are
+  restored to the outcome's original scale. Model specifications 1–10 retain
+  their existing formulas and sample selection. The age effect differentiates
+  the complete formula, including a quadratic age term; the separate squared
+  term row remains a placeholder for nonlinear estimators.
+- `frac` requires outcomes in [0, 1] or [0, 100], retaining exact endpoints;
+  observed 0–100 outcomes are divided by 100 for fitting and results are
+  restored to the original scale. `ppml` preserves nonnegative outcomes,
+  including fractional publication counts and zeros. `nb` requires
+  nonnegative counts; fractional `P_top10`, `P_top5`, and `P_top1` responses
+  are rounded to nearest integer using half-up ties (for example, 2.5 becomes
+  3), on an estimator-owned copy of the data. This NB approximation affects
+  only the response passed to NB and is identified in result metadata.
+- LaTeX presentation retains existing templates and filenames. OLS-family,
+  Huber, and nonlinear estimators use estimator-appropriate effect headings;
+  the compact model-comparison table keeps its original stars-based p-value
+  presentation. Huber's Model 1–10 fitting is generic; existing M9/M10-specific
+  supplementary reports remain intentionally tied to those specifications.
+- Approval of this estimator redesign, its half-up count rounding, the
+  M9-specific supplementary reports, and the typed result metadata was granted
+  during the design review. The user separately authorized Phase 4 regression
+  test migration and verification.
+
+## Regression estimator refactor — Phase 4 verification
+
+- Migrated/updated regression tests under `tests/regression/`, including
+  independent selection of all eight supported estimators, removal of combined
+  identifiers, input reuse workflow coverage, outcome-domain checks, exact
+  fractional endpoints, estimator-specific transformations, and standard
+  output filenames.
+- Added independent numerical AME references for fractional logit and PPML
+  binary contrasts/delta-method inference, NB binary contrasts and title
+  contrasts with robust standard errors and p-values, and a continuous Model 7
+  age derivative that includes the quadratic term. The table keeps the age²
+  coefficient row as a placeholder for nonlinear fits.
+- Added half-up NB tie/boundary checks (`2.5 -> 3`), actual NB response checks,
+  original-input immutability checks, PPML fractional-response preservation,
+  mixed-estimator headings/notes, and M9/M10 supplementary output-file checks.
+- Compared source and target Model 1–10 specifications using the original
+  repository's implementations at
+  `/home/chri/PycharmProjects/name-matching-playground`: all formula strings,
+  complete-case row indexes, Patsy design columns, and design-matrix values
+  matched exactly. Sample sizes were 119 for Models 1–8 and 118 for Models 9–10
+  in the deterministic comparison fixture. Design dimensions were 6, 7, 8, 8,
+  9, 10, 11, 36, 37, and 36 respectively.
+- Additional source-vs-target estimator comparisons matched estimates and
+  standard errors for OLS, OLS-HC3, Poisson regression, and ZINB on deterministic
+  synthetic data. NB parameter estimates matched; its covariance intentionally
+  differs because the requested target behavior uses HC3 while the source's
+  default `nb` uses conventional covariance. Huber matched the direct statsmodels
+  HuberT/RLM reference. Fractional logit and PPML matched direct Binomial-logit
+  and Poisson GLM references.
+- `uv run pytest tests/regression/ -q`: **101 passed**, 2 statsmodels ZINB
+  optimizer runtime warnings (invalid logarithms during candidate fitting).
+  `uv run pytest tests/integration/ -q`: after updating the regression-output
+  assertion for estimator-specific inference notes, **24 passed**; 5 pandas
+  concatenation FutureWarnings remain in name-matching/mobility tests.
+- `uv run pytest --import-mode=importlib -q`: **349 passed, 2 failed**. Both
+  failures are in `tests/pipeline/test_dependencies.py` and concern producer
+  ordering/missing external inputs for name disambiguation; they are outside the
+  regression scope. No regression test failed.
+  Default `uv run pytest -q` still stops during collection because test modules
+  named `test_workflow.py` collide; importlib mode collects the suite.
+- `uv run ruff check` and all configured pre-commit hooks passed, including
+  Flake8, Black, mypy, and isort. No research data or original-repository files
+  were modified. No estimator-behavior discrepancy was found beyond the
+  explicitly requested NB HC3 covariance change.
+- Follow-up runtime investigation found that AME delta-method gradients rebuilt
+  Patsy design matrices and evaluated parameter perturbations serially. AME
+  scenario matrices are now built once, and the same central finite-difference
+  parameter perturbations are evaluated as a batch. The scenario data,
+  covariance calculation, finite-difference method, and reported estimand are
+  unchanged. Regression tests (101 passed) and all configured pre-commit hooks
+  passed after this optimization.
+
+## Fractional-logit Model 9 independent validation
+
+- Validated the completed run configured by
+  `config/pipeline_regression_frac.toml`, reading its resolved researcher input
+  and regression outputs without modifying either. Model 9's source and target
+  formula terms matched; for each of mwPR and the three PP outcomes, the
+  complete-case row indexes and Patsy design matrices matched the original
+  repository exactly (7,842 rows, 38 columns).
+- Independent direct statsmodels GLM fits used Binomial with the Logit link and
+  HC3 covariance. For each outcome, fitted parameters and standard errors
+  matched the saved target coefficients to maximum absolute differences below
+  `5e-16` and `1e-16`, respectively. All four fits converged with finite
+  estimates/covariances. Predicted probabilities stayed in `[0, 1]`; none were
+  below `1e-6` or above `1 - 1e-6`.
+- Independent Patsy scenario construction, SciPy inverse-logit predictions,
+  parameter finite differences, and HC3 delta-method calculations reproduced
+  all 37 saved AMEs per outcome. Maximum estimate differences were below
+  `5e-15`, standard-error differences below `3e-11`, and p-value differences
+  below `3e-12`. This includes inbreeding discrete effects, continuous
+  derivatives, and categorical contrasts. The formula's Patsy treatment
+  baseline for title is Ao. Prof.; the paper table separately contrasts each
+  title against Full Prof., matching the original reporting convention.
+- Only mwPR was rescaled from 0–100 to 0–1 for fitting and returned to
+  percentile-point units. The three PP outcomes remained on their original
+  0–1 fractional scale for fitting and their AMEs were expressed in percentage
+  points. Their nonbinary responses and observed endpoints were retained; the
+  actual sample contains 6,336/5,531/3,367 nonbinary observations for PP(top
+  10%)/PP(top 5%)/PP(top 1%), respectively. PP(top 10%) has 1,486 zeros and 20
+  ones; PP(top 5%) has 2,305 zeros and 6 ones; PP(top 1%) has 4,475 zeros and
+  no ones. mwPR has no exact endpoints in this sample.
+- For inbreeding, independently calculated AMEs (HC3 delta SE, z-test p-value)
+  were: mwPR `-1.84454` (`0.32422`, `p=1.28e-8`, `***`); PP(top 10%) `-1.01886`
+  (`0.31526`, `p=0.00123`, `**`); PP(top 5%) `-0.43251` (`0.21728`,
+  `p=0.04653`, `*`); PP(top 1%) `-0.10233` (`0.07654`, `p=0.18121`, no star).
+  The M9 LaTeX table labels estimates AME, gives percentile/percentage-point
+  units and robust SEs, and keeps raw logit coefficients in separate CSV rows.
+- Numerical-differentiation checks found the production `1e-5` parameter step
+  stable against `1e-6`: inbreeding SE differences were at most `0.00004`
+  percentage/percentile points. `1e-4` had larger discrepancies (up to about
+  2.6% for PP(top 1%)); this is recorded as sensitivity to an overly large
+  gradient step, not evidence of fit instability. Continuous age AMEs were
+  stable across `1e-4`, `1e-5`, and `1e-6` predictor steps.
+- OLS-HC3 M9 inbreeding benchmarks were `-1.84907`, `-1.02272`, `-0.42838`,
+  and `-0.07309` in corresponding percentile/percentage-point units. These
+  are descriptive linear-model comparisons, not a correctness criterion for
+  the nonlinear AMEs; independent prediction and delta-method calculations
+  above provide that validation. The original implementation has no
+  Fractional-Logit estimator to compare directly.
+
+## Negative-binomial AME overflow correction
+
+- The configured NB failure was traced to an estimation/prediction-coordinate
+  mismatch. NB fitting centers `first_year`, but AME scenarios had been rebuilt
+  from the uncentered source frame. For Model 9/10, this produced invalid or
+  overflowing mean predictions, non-finite delta-method variances, and a later
+  LaTeX formatting failure on `nan`/`inf` standard errors.
+- NB AME scenarios now use the same centered predictor coordinate as the fit.
+  The NB delta-method gradient uses the exact derivative of its log-link mean,
+  avoiding repeated parameter perturbation predictions; the AME definition,
+  fitted likelihood, covariance, model formula, and sample remain unchanged.
+  Non-finite gradient/covariance/variance inputs now fail with an AME-specific
+  error rather than emitting matmul warnings and failing later in formatting.
+- Validation with the configured 7,842-row researcher artifact: one Model 9
+  `P_top10` NB fit plus its 37 AMEs completed in 0.62 seconds, with centered
+  `first_year` mean approximately zero and all estimates, SEs, and p-values
+  finite. The NB Model 9 regression test independently checks the centered
+  prediction frame and compares the analytic log-link delta SE to numerical
+  finite differences.
+
+## Estimator-specific LaTeX effect headings
+
+- The main relative/absolute performance, Model 9 supplementary, and Model 10
+  templates already choose `AME` versus `Coef.` per outcome column. Added an
+  explicit effect-type header beneath each M1–M10 model heading in the compact
+  model-comparison tables, so NB model columns are labeled `AME` while linear
+  model columns remain labeled `Coef.`. Estimate selection, standard errors,
+  significance stars, and existing table filenames are unchanged.
+- The negative-binomial table test asserts one `AME` label per model column.
+- The Model 10 comparison table now reports the inbreeding estimate, robust
+  standard error, and p-value, followed by estimator and effect rows populated
+  from each outcome's configured model family. For the documented OLS-HC3/NB
+  configuration this identifies OLS coefficients and the NB AME explicitly;
+  numerical estimates and inference are unchanged. Its caption and estimator-
+  specific note follow the requested research-performance table wording.
+
 ## Regression robustness estimators
 
+- The `huberfrac`, `huberppml`, and `nbppml` bundles are selected directly as
+  values in `[regression.dependent_variables]`. For each selected outcome and
+  configured formula specification, the bundle fits its two named estimators
+  under distinct model IDs. Model 9 therefore keeps the same formula, ASJC
+  controls, and complete-case sample as that outcome's existing Model 9.
+  Huber RLM retains its HuberT covariance; fractional logit, PPML, and NBHC3
+  bundle fits use HC3. Fractional logit rescales mwPR to [0, 1] for fitting.
+  Nonlinear GLM outputs include discrete average effects for binary inbreeding.
 - The existing `nb` estimator retains its previous covariance behavior. The new
   `nbhc3` estimator uses the same negative-binomial likelihood and fitting process
   but explicitly uses HC3 covariance for standard errors, confidence intervals,
   and Wald p-values. This keeps HC3 selection separate from the existing `nb`
   specification.
 
-- Regression dependent-variable configuration continues to select exactly one
-  estimator per outcome (for example, `hazen_perc_med = "huber"`); it does not
-  implicitly fit OLS alongside another estimator. Supported additions are
+- Regression dependent-variable configuration selects one existing model family
+  per outcome or one explicitly named two-estimator bundle; selecting a bundle
+  does not implicitly fit another estimator. Supported additions are
   `huber`, `fractional_logit`, and `ppml`. Huber uses the existing configured
   formula, covariates, and analytical sample. Fractional logit is limited to
   relative outcomes; PPML is limited to absolute outcomes. Both GLM estimators
   use HC3 covariance by default and reject non-converged or non-finite fits.
+- Selecting a bundle in `[regression.dependent_variables]` replaces that
+  outcome's previous model-family selection for all configured model
+  specifications; it does not retain the previous estimator in parallel.
+  This is the requested configuration behavior. For example,
+  `pp_top_10 = "huberfrac"` fits Huber and fractional logit for that outcome.
+- Bundles use the existing LaTeX filenames and layouts. The standard tables
+  select one presentation estimator per outcome (Huber for `huberfrac` and
+  `huberppml`; NBHC3 for `nbppml`), retaining the established one-fit-per-outcome
+  table structure. Companion fractional-logit and PPML fits remain in the
+  robustness CSV outputs rather than producing alternate suffixed LaTeX tables.
 - Fractional-logit mwPR is divided by 100 for fitting because its input is stored
   on a 0–100 scale; the three configured top-percentile shares are already on
   the 0–1 scale. The academic-inbreeding marginal effect is a discrete mean
