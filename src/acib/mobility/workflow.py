@@ -13,7 +13,6 @@ import structlog
 from acib.mobility.config import MobilityConfig
 from acib.mobility.inbreeding import (
     analyze_academic_inbreeding,
-    unique_affiliations,
     write_inbreeding_outputs,
 )
 from acib.mobility.input import enrich_authors_with_researcher_metadata
@@ -24,7 +23,6 @@ from acib.mobility.schemas import (
     MobilityAuthorAffiliationsOutputSchema,
     MobilityAuthorArticlesOutputSchema,
     MobilityAuthorInbreedingOutputSchema,
-    MobilityUniqueAffiliationsOutputSchema,
 )
 from acib.schemas.matching import MatchingOutputSchema
 from acib.schemas.researchers import ResearcherDisambiguationSelectionSchema
@@ -139,9 +137,6 @@ def run_mobility(config: MobilityConfig) -> None:
     for frame, schema in output_frames:
         if not frame.empty or len(frame.columns) > 0:
             schema.validate(frame, lazy=True)
-    unique_affiliation_frame = unique_affiliations(author_affiliations=result.author_affiliations)
-    if not unique_affiliation_frame.empty or len(unique_affiliation_frame.columns) > 0:
-        MobilityUniqueAffiliationsOutputSchema.validate(unique_affiliation_frame, lazy=True)
     _logger.info(
         "Writing mobility outputs",
         output_paths=[str(path) for path in config.outputs.all_paths()],

@@ -115,6 +115,7 @@ from acib.mobility.constants import (
     TOTAL_COAUTHORS_ACROSS_PUBLICATIONS,
     UNIQUE_AFFILIATIONS,
     UNIVERSITY_AFFILIATION_IDS,
+    UNMAPPED_AFFILIATION_ID,
 )
 from acib.mobility.input import (
     add_mobility_author_profile_ids,
@@ -167,15 +168,6 @@ _AFFILIATION_METADATA_COLUMNS = [
     AFFILIATION_ID_PARENT_COLUMN,
 ]
 
-_AUTHOR_AFFILIATION_EXPORT_COLUMNS = [
-    ARTICLE_AUTHOR_ID_COLUMN,
-    AFFILIATION_ID_COLUMN,
-    AFFILIATION_NAME_COLUMN,
-    ADDRESS_COLUMN,
-    CITY_COLUMN,
-    COUNTRY_COLUMN,
-]
-
 
 @dataclass(frozen=True, slots=True)
 class InbreedingResult:
@@ -183,7 +175,7 @@ class InbreedingResult:
 
     :param author_affiliations: Per-author affiliation history records.
     :param author_summary: Per-profile analysis and classification records.
-    :param author_articles: Unique article rows associated with profiles.
+    :param author_articles: Author-article rows with grouped affiliation identifiers.
     """
 
     author_affiliations: pd.DataFrame
@@ -238,7 +230,7 @@ def analyze_academic_inbreeding(
     :param author_affiliations: Affiliation metadata table.
     :param articles: Article-author-affiliation evidence.
     :param resolved_authors: Final selected researcher-author profiles.
-    :return: Affiliation history, profile summary, and unique article rows.
+    :return: Affiliation history, profile summary, and author-article rows.
     """
     validate_early_affiliation_parameters(
         early_affiliation_method=early_affiliation_method,
@@ -268,7 +260,7 @@ def analyze_academic_inbreeding(
     return InbreedingResult(
         author_affiliations=affiliation_history,
         author_summary=author_summary,
-        author_articles=unique_author_articles(article_author_df),
+        author_articles=author_article_export(article_author_df),
     )
 
 
@@ -1880,24 +1872,76 @@ def author_article_eids(frame: pd.DataFrame) -> list[Any]:
     return result
 
 
-def unique_author_articles(frame: pd.DataFrame) -> pd.DataFrame:
-    """Keep the first chronologically ordered row for each article.
+def author_article_export(frame: pd.DataFrame) -> pd.DataFrame:
+    """Group affiliation rows into one author-article row with delimited IDs.
 
-    :param frame: Article-author rows.
-    :return: One row per nonmissing article identifier.
+    :param frame: Prepared publication-author-affiliation rows.
+    :return: One row per author and article, retaining resolved and original IDs.
     """
-    if EID_COLUMN not in frame.columns:
+    if EID_COLUMN not in frame.columns or ARTICLE_AUTHOR_ID_COLUMN not in frame.columns:
         return pd.DataFrame()
     article_rows = frame.dropna(subset=[EID_COLUMN]).copy()
     if article_rows.empty:
         return article_rows
-
     sort_columns = [
         column for column in [ARTICLE_COVER_DATE_COLUMN, EID_COLUMN] if column in article_rows
     ]
     if sort_columns:
         article_rows = article_rows.sort_values(sort_columns, kind="mergesort")
-    return article_rows.drop_duplicates(subset=[EID_COLUMN], keep="first").reset_index(drop=True)
+
+    grouped_rows: list[dict[str, Any]] = []
+    for _, group in article_rows.groupby(
+        [ARTICLE_AUTHOR_ID_COLUMN, EID_COLUMN], sort=False, dropna=False
+    ):
+        row = group.iloc[0].to_dict()
+        row[ARTICLE_AFFILIATION_ID_COLUMN] = (
+            _joined_unique_ids(group[ARTICLE_AFFILIATION_ID_COLUMN])
+            if ARTICLE_AFFILIATION_ID_COLUMN in group
+            else ""
+        )
+        row[UNMAPPED_AFFILIATION_ID] = (
+            _joined_unique_ids(group[UNMAPPED_AFFILIATION_ID], split_delimited_values=True)
+            if UNMAPPED_AFFILIATION_ID in group
+            else ""
+        )
+        grouped_rows.append(row)
+    return pd.DataFrame(grouped_rows, columns=article_rows.columns).reset_index(drop=True)
+
+
+def _joined_unique_ids(values: pd.Series, *, split_delimited_values: bool = False) -> str:
+    """Join unique identifier values in encounter order.
+
+    :param values: Identifier values, including optional lists of IDs.
+    :param split_delimited_values: Split original source values on hyphens.
+    :return: Semicolon-delimited identifier string.
+    """
+    identifiers: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if isinstance(value, (list, tuple)):
+            items = value
+        elif pd.isna(value):
+            continue
+        else:
+            items = [value]
+        for item in items:
+            if pd.isna(item):
+                continue
+            tokens = str(item).split("-") if split_delimited_values else [str(item)]
+            for token in tokens:
+                token = token.strip()
+                if not token:
+                    continue
+                try:
+                    numeric_value = float(token)
+                    if numeric_value.is_integer():
+                        token = str(int(numeric_value))
+                except ValueError:
+                    pass
+                if token not in seen:
+                    seen.add(token)
+                    identifiers.append(token)
+    return ";".join(identifiers)
 
 
 def coauthor_summary(frame: pd.DataFrame) -> dict[str, Any]:
@@ -2042,44 +2086,19 @@ def final_author_title(author_match: pd.DataFrame) -> str:
 
 
 def write_inbreeding_outputs(result: InbreedingResult, outputs: MobilityOutputs) -> None:
-    """Write analysis tables and the unique-affiliation export to CSV files.
+    """Write the three mobility analysis artifacts to CSV files.
 
     :param result: Tabular analysis outputs.
-    :param outputs: Explicit paths for the four mobility artifacts.
+    :param outputs: Explicit paths for the three mobility artifacts.
     """
     artifacts = (
         (result.author_affiliations, outputs.author_affiliations),
-        (
-            unique_affiliations(author_affiliations=result.author_affiliations),
-            outputs.author_affiliations_unique,
-        ),
         (result.author_summary, outputs.author_inbreeding_proxy),
         (result.author_articles, outputs.author_articles),
     )
     for frame, path in artifacts:
         path.parent.mkdir(parents=True, exist_ok=True)
         frame.to_csv(path, index=False)
-
-
-def unique_affiliations(author_affiliations: pd.DataFrame) -> pd.DataFrame:
-    """Create the deduplicated export of top-level affiliation records.
-
-    :param author_affiliations: Per-author affiliation history rows.
-    :return: Unique affiliation rows restricted to export columns.
-    """
-    if author_affiliations.empty:
-        return pd.DataFrame(columns=_AUTHOR_AFFILIATION_EXPORT_COLUMNS)
-    unique = author_affiliations.drop_duplicates(
-        subset=[ARTICLE_AUTHOR_ID_COLUMN, AFFILIATION_ID_COLUMN]
-    )
-    unique = unique.drop_duplicates(subset=[AFFILIATION_ID_COLUMN])
-    unique = unique.loc[unique[AFFILIATION_ID_PARENT_COLUMN].isna()].drop(
-        columns=[AFFILIATION_ID_PARENT_COLUMN],
-        errors="ignore",
-    )
-    return unique[
-        [column for column in _AUTHOR_AFFILIATION_EXPORT_COLUMNS if column in unique.columns]
-    ]
 
 
 def write_unique_affiliation_chunks(
