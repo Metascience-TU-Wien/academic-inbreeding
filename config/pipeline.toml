@@ -48,7 +48,7 @@ drop_missing = true
 min_publications = 1
 professor_title_pattern = "prof"
 exclude_titles = []
-rebuild_input = true
+rebuild_input = false
 
 [regression.dependent_variables]
 # Relative impact outcomes use OLS coefficients with HC3-robust standard errors.

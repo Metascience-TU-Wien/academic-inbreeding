@@ -188,7 +188,9 @@ def test_configured_performance_latex_outputs_are_written_to_configured_director
     assert "Publications" in absolute and r"P(top 10\%)" in absolute
     assert r"\textbf{$P$}" in absolute
     assert r"P{>}|t|" not in absolute
-    assert "OLS uses conventional standard errors and $t$-test inference" in absolute
+    assert "regression coefficients (Coef.) from ordinary least squares (OLS)" in absolute
+    assert "model-based standard errors (SE)" in absolute
+    assert "p-values are based on t-tests" in absolute
 
     outputs = outputs_under(tmp_path)
     result.write(outputs, data=data)
@@ -242,7 +244,7 @@ def test_model10_full_specification_latex_is_written_to_configured_directory(
     assert r"\label{tab:without_international_mobility}" in table
     assert r"\textbf{Relative citation impact}" in table
     assert r"\textbf{Absolute publication output}" in table
-    assert "full specification excluding international mobility" in table
+    assert "full specification except international mobility" in table
 
     outputs = outputs_under(tmp_path)
     result.write(outputs, data=data)

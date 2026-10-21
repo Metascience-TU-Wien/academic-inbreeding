@@ -156,7 +156,7 @@ def outcome_blocks(
 ) -> list[str]:
     """Render all statistics for each configured outcome."""
     rows = []
-    statistics = (r"\quad ATT", r"\quad Std.\ err.", r"\quad \(P{>}|t|\)", r"\quad 95\% CI")
+    statistics = (r"\quad ATT", r"\quad Robust SE", r"\quad \(P{>}|t|\)", r"\quad 95\% CI")
     for index, outcome in enumerate(outcomes):
         if index:
             rows.append(r"\addlinespace[5pt]")
@@ -192,7 +192,7 @@ def format_statistic_cell(cell: MatchingLatexCell, *, statistic: str) -> str:
     """Format estimate, robust SE, p-value, or confidence interval."""
     if statistic == r"\quad ATT":
         return format_number(cell.estimate)
-    if statistic == r"\quad Std.\ err.":
+    if statistic == r"\quad Robust SE":
         return format_number(cell.std_error)
     if statistic == r"\quad 95\% CI":
         return format_centered_cell(format_ci_cell(cell.conf_low, cell.conf_high))
@@ -253,11 +253,23 @@ def notes(
     """Render source family, unit, estimator, and significance notes."""
     units = []
     if any(value in PP_OUTCOMES for value in outcomes):
-        units.append(r"PP outcomes are reported in percentage points.")
+        units.append(r"PP(top \(x\%\)) outcomes are reported in percentage points.")
     if N_PUBLIC in outcomes:
-        units.append("Publication output is reported as publication counts.")
-    if any(value in ABSOLUTE_P_OUTCOMES for value in outcomes):
-        units.append(r"P outcomes are fractional publication counts.")
+        units.append("Publications is the number of publications per professor.")
+    absolute_p_outcomes = tuple(value for value in ABSOLUTE_P_OUTCOMES if value in outcomes)
+    if absolute_p_outcomes:
+        labels = [DEFAULT_REGRESSION_OUTCOME_METADATA[value][1] for value in absolute_p_outcomes]
+        if len(labels) == 1:
+            units.append(
+                f"{labels[0]} is the professor-level sum of publication-level fractional "
+                "indicators for its top citation-impact group."
+            )
+        else:
+            label_list = ", ".join(labels[:-1]) + f", and {labels[-1]}"
+            units.append(
+                f"{label_list} are professor-level sums of publication-level fractional "
+                "indicators for their respective top citation-impact groups."
+            )
     family_note = (
         "Negative ATT estimates indicate lower research performance among academically "
         "inbred professors than among non-inbred professors. "
@@ -267,8 +279,8 @@ def notes(
     )
     return (
         rf"\textit{{Notes.}} Reported are average treatment effects on the treated (ATTs), "
-        rf"heteroskedasticity-robust {covariance_type} standard errors (Std.\ err.), "
-        r"\(p\)-values (\(P\)), and 95\% confidence intervals (CIs). "
+        rf"{covariance_type} heteroskedasticity-robust standard errors (Robust SE), "
+        r"\(p\)-values (\(P\)) based on \(t\)-tests, and 95\% confidence intervals (CIs). "
         f"{family_note}{' '.join(units)} "
         r"Professors were balanced on academic age, academic title, first "
         r"publication year, and fractional publication shares across the five broad ASJC "

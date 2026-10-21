@@ -28,6 +28,11 @@ def test_suite_runs_all_methods_and_emits_complete_results(
     assert len(result.adjusted_means) == 64
     assert set(result.covariate_balance.method) == set(DEFAULT_METHODS)
     assert result.formulas["balancing"].startswith("is_inbred ~ academic_age")
+    absolute = result.latex_tables["matching_results_absolute.tex"]
+    assert (
+        r"P(top 10\%), P(top 5\%), and P(top 1\%) are professor-level sums of "
+        "publication-level fractional indicators for their respective top citation-impact groups."
+    ) in absolute
 
 
 def test_display_scales_only_pp_effects(
@@ -69,9 +74,18 @@ def test_absolute_outcomes_reporting_and_order(
     relative, absolute = result.latex_tables.values()
     assert r"\label{tab:matching_results_relative}" in relative
     assert r"\label{tab:matching_results_absolute}" in absolute
+    assert r"\quad Robust SE" in relative and r"\quad Robust SE" in absolute
+    assert r"Std.\ err." not in relative + absolute
+    assert "HC3 heteroskedasticity-robust standard errors (Robust SE)" in relative
+    assert r"\(p\)-values (\(P\)) based on \(t\)-tests" in relative
+    assert r"PP(top \(x\%\)) outcomes are reported in percentage points." in relative
     assert "lower absolute publication output" in absolute
     assert r"P(top 10\%)" in absolute
-    assert "P outcomes are fractional publication counts." in absolute
+    assert "Publications is the number of publications per professor." in absolute
+    assert (
+        r"P(top 10\%) is the professor-level sum of publication-level fractional "
+        "indicators for its top citation-impact group."
+    ) in absolute
     assert "P(top 10%) [count]" not in absolute
     aliases_ordered = ["Publications", r"P(top 10\%)"]
     assert [absolute.index(alias) for alias in aliases_ordered] == sorted(

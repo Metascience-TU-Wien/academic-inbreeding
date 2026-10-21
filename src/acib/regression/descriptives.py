@@ -40,26 +40,38 @@ class ContinuousVariable:
 
 
 DESCRIPTIVE_OUTCOME_VARIABLES = (
-    ContinuousVariable(HAZEN_PERCENTILE, r"mwPR [\%]", digits=1),
-    ContinuousVariable(PP_TOP_10, r"PP(top 10\%) [\%]", 100.0, 1),
-    ContinuousVariable(PP_TOP_5, r"PP(top 5\%) [\%]", 100.0, 1),
-    ContinuousVariable(PP_TOP_1, r"PP(top 1\%) [\%]", 100.0, 1),
+    ContinuousVariable(
+        HAZEN_PERCENTILE,
+        "Mean weighted percentile rank (mwPR) [percentile points]",
+        digits=1,
+    ),
+    ContinuousVariable(PP_TOP_10, r"PP(top 10\%) [percentage points]", 100.0, 1),
+    ContinuousVariable(PP_TOP_5, r"PP(top 5\%) [percentage points]", 100.0, 1),
+    ContinuousVariable(PP_TOP_1, r"PP(top 1\%) [percentage points]", 100.0, 1),
 )
 DESCRIPTIVE_ABSOLUTE_OUTCOME_VARIABLES = (
     ContinuousVariable(N_PUBLIC, "Publications [count]", digits=0),
-    ContinuousVariable(ABSOLUTE_P_TOP_10, r"P(top 10\%) [count]", digits=1),
-    ContinuousVariable(ABSOLUTE_P_TOP_5, r"P(top 5\%) [count]", digits=1),
-    ContinuousVariable(ABSOLUTE_P_TOP_1, r"P(top 1\%) [count]", digits=1),
+    ContinuousVariable(ABSOLUTE_P_TOP_10, r"P(top 10\%) [fractional publication counts]", digits=1),
+    ContinuousVariable(ABSOLUTE_P_TOP_5, r"P(top 5\%) [fractional publication counts]", digits=1),
+    ContinuousVariable(ABSOLUTE_P_TOP_1, r"P(top 1\%) [fractional publication counts]", digits=1),
 )
 DESCRIPTIVE_EXPLANATORY_VARIABLES = (
     ContinuousVariable(ACADEMIC_AGE, "Academic age [years]", digits=0),
-    ContinuousVariable("coaffiliation_publication_share", r"Co-affil. pub. share [\%]", 100.0, 1),
-    ContinuousVariable("mean_coauthors_per_publication", "Mean coauthors per pub.", digits=1),
+    ContinuousVariable(
+        "coaffiliation_publication_share",
+        "Co-affiliation publication share [percentage points]",
+        100.0,
+        1,
+    ),
+    ContinuousVariable("mean_coauthors_per_publication", "Mean coauthors", digits=1),
     ContinuousVariable(
         "n_away_years_domestic", "Domestic mobility [years]", digits=0, mean_sd_digits=1
     ),
     ContinuousVariable(
-        "n_away_years_abroad", "International mobility [years]", digits=0, mean_sd_digits=1
+        "n_away_years_abroad",
+        "International mobility [years]",
+        digits=0,
+        mean_sd_digits=1,
     ),
     ContinuousVariable(FIRST_YEAR, "First publication year", digits=0),
 )
@@ -188,20 +200,42 @@ def descriptive_statistics_latex_table(
                     format_count_percent(group_sample(sample, True), title),
                 )
             )
+    note_parts = [
+        (
+            r"\textit{Notes.} Continuous variables are summarized by mean, standard deviation "
+            r"(SD), minimum, and maximum."
+        )
+    ]
+    if HAZEN_PERCENTILE in sample:
+        note_parts.append(
+            "The mean weighted percentile rank (mwPR) is reported in percentile points."
+        )
+    if any(column in sample for column in (PP_TOP_10, PP_TOP_5, PP_TOP_1)):
+        note_parts.append(
+            r"PP(top 10\%), PP(top 5\%), and PP(top 1\%) are proportions of publications "
+            "in the respective citation-impact percentiles, displayed in percentage points."
+        )
+    if any(column in sample for column in ABSOLUTE_PERFORMANCE_OUTCOMES):
+        note_parts.append(
+            r"Publications is the publication count; P(top 10\%), P(top 5\%), and "
+            r"P(top 1\%) are fractionally counted highly cited publication counts."
+        )
+    if "title" in sample:
+        note_parts.append(
+            r"Full Prof. is the reference category for academic title; all academic-title "
+            r"abbreviations are defined in Table~\ref{tab:prof_titles}."
+        )
+    note_parts.append(
+        r"Definitions and calculations of the analytical variables are provided in "
+        r"Table~\ref{tab:analytical_variables}."
+    )
     lines.extend(
         [
             r"\bottomrule",
             r"\end{tabularx}",
             r"\begin{minipage}{\textwidth}",
             r"\footnotesize",
-            (
-                r"\textit{Notes.} Continuous variables are reported as mean, standard deviation "
-                r"(SD), minimum, and maximum."
-            ),
-            (
-                r"mwPR is reported in percentile points; PP and co-affiliation shares are "
-                r"reported as percentages."
-            ),
+            " ".join(note_parts),
             r"\end{minipage}",
             r"\end{table}",
         ]
@@ -255,7 +289,11 @@ def latex_row(cells: list[str], *, row_end: str = LATEX_ROW_END) -> str:
 
 
 def grouped_value_row(
-    label: str, non_inbred_value: str, inbred_value: str, *, row_end: str = LATEX_ROW_END
+    label: str,
+    non_inbred_value: str,
+    inbred_value: str,
+    *,
+    row_end: str = LATEX_ROW_END,
 ) -> str:
     """Render values spanning each four-column inbreeding group."""
     return (
