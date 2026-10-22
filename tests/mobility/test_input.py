@@ -1005,6 +1005,15 @@ def test_author_article_export_groups_affiliations_per_author_and_article() -> N
                 "doi": "10/example",
                 "source_id": "journal-1",
             },
+            {
+                "eid": "unassigned-paper",
+                "author_ids": None,
+                "author_afids": 40,
+                "unmapped_id": 40,
+                "cover_date": "2021-01-01",
+                "doi": "10/unassigned",
+                "source_id": "journal-1",
+            },
         ]
     )
 
@@ -1020,6 +1029,7 @@ def test_author_article_export_groups_affiliations_per_author_and_article() -> N
     assert result.loc[1, "author_afids"] == "30"
     assert result.loc[1, "unmapped_id"] == "30"
     assert result["doi"].tolist() == ["10/example", "10/example"]
+    assert result["author_ids"].dtype == "int64"
 
 
 def test_write_inbreeding_outputs_writes_three_artifacts(tmp_path: Path) -> None:

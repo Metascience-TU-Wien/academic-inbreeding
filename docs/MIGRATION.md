@@ -648,8 +648,10 @@ established by inspecting implementations.
   resolved `author_afids` and original `unmapped_id` values into semicolon-
   delimited columns while retaining the other article fields. Existing
   author/affiliation association and parent-resolution logic remains unchanged;
-  this is an output-contract change only. Regression does not consume this
-  artifact and continues reading the configured external article dataset.
+  rows without an author ID are excluded from this per-author export and
+  integral IDs are retained as `int64`. This is an output-contract change only.
+  Regression does not consume this artifact and continues reading the
+  configured external article dataset.
 - The user also approved stopping production of `author_affiliations_unique.csv`.
   Mobility now declares/writes three outputs: `author_affiliations.csv`,
   `author_inbreeding_proxy.csv`, and `author_articles.csv`. Existing files in
@@ -659,7 +661,8 @@ established by inspecting implementations.
   passed (60 tests) and `uv run pytest tests/integration/` passed (24 tests).
   Coverage checks grouped affiliations by author/EID, preserves distinct
   authors on the same EID, serializes resolved and original IDs, validates the
-  schema, and confirms the removed unique-affiliation artifact is not written.
+  schema, checks null author-ID handling and integer dtype, and confirms the
+  removed unique-affiliation artifact is not written.
 - Ran the original mobility tests read-only with bytecode and pytest cache
   writing disabled: 32 passed. A representative source/target comparison of
   author affiliation histories and scientific summary fields

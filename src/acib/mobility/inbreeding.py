@@ -1877,10 +1877,15 @@ def author_article_export(frame: pd.DataFrame) -> pd.DataFrame:
 
     :param frame: Prepared publication-author-affiliation rows.
     :return: One row per author and article, retaining resolved and original IDs.
+    :raises ValueError: If an exported author identifier is not integral.
     """
     if EID_COLUMN not in frame.columns or ARTICLE_AUTHOR_ID_COLUMN not in frame.columns:
         return pd.DataFrame()
-    article_rows = frame.dropna(subset=[EID_COLUMN]).copy()
+    article_rows = frame.dropna(subset=[EID_COLUMN, ARTICLE_AUTHOR_ID_COLUMN]).copy()
+    author_ids = pd.to_numeric(article_rows[ARTICLE_AUTHOR_ID_COLUMN], errors="raise")
+    if not author_ids.mod(1).eq(0).all():
+        raise ValueError("Author identifiers in the article export must be integral.")
+    article_rows[ARTICLE_AUTHOR_ID_COLUMN] = author_ids.astype("int64")
     if article_rows.empty:
         return article_rows
     sort_columns = [
