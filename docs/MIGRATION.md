@@ -766,6 +766,19 @@ established by inspecting implementations.
   model-dependent LaTeX tables and conditional figures are grouped under the
   configured `latex_dir` and `plots_dir`. No output root or legacy output
   filename is hardcoded in the regression package.
+- The user approved updating the model-comparison LaTeX tables to the supplied
+  template: sample size moves from the caption to the notes, the estimator row
+  is omitted, and the requested labels and notes are used for OLS models with
+  HC3 covariance. The coefficient/effect header row is omitted for mwPR,
+  P(top x%), PP(top x%), and `n_public` comparison tables. Notes identify each
+  table's actual dependent variable. Negative-binomial `n_public` comparison
+  tables report AMEs and use NB-specific notes, including dynamic sample size
+  and HC3/delta-method/z-test inference. Other estimator families retain
+  estimator-appropriate notes. The sentences defining `Coef.` and adjusted
+  $R^2$ are omitted from generated table notes wherever they previously
+  appeared. Model estimates and scientific calculations are unchanged. Static
+  checks passed; Phase 4 behavioral verification of this follow-up remains
+  pending separate approval.
 
 ### Phase 3 — code migration report and Phase 4 gate
 
