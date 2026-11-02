@@ -10,7 +10,6 @@ from acib.mobility.schemas import (
     MobilityAuthorAffiliationsOutputSchema,
     MobilityAuthorArticlesOutputSchema,
     MobilityAuthorInbreedingOutputSchema,
-    MobilityUniqueAffiliationsOutputSchema,
 )
 from acib.schemas.researchers import ResearcherDisambiguationSelectionSchema
 
@@ -107,13 +106,6 @@ def test_affiliation_history_output_schema_requires_integral_identifiers() -> No
         MobilityAuthorAffiliationsOutputSchema.validate(invalid, lazy=True)
 
 
-def test_unique_affiliation_schema_rejects_invalid_identifier() -> None:
-    with pytest.raises(SchemaErrors):
-        MobilityUniqueAffiliationsOutputSchema.validate(
-            pd.DataFrame({"affiliation_id": ["bad-id"]}), lazy=True
-        )
-
-
 def test_inbreeding_output_schema_allows_unclassified_proxy_and_extra_fields() -> None:
     frame = pd.DataFrame(
         {
@@ -130,14 +122,29 @@ def test_inbreeding_output_schema_allows_unclassified_proxy_and_extra_fields() -
 
 
 def test_author_articles_schema_requires_eid_and_preserves_article_fields() -> None:
-    frame = pd.DataFrame({"eid": ["paper-1"], "doi": ["10/example"]})
+    frame = pd.DataFrame(
+        {
+            "eid": ["paper-1"],
+            "author_ids": [1001],
+            "author_afids": ["10;20"],
+            "unmapped_id": ["100;200"],
+            "doi": ["10/example"],
+        }
+    )
 
     result = MobilityAuthorArticlesOutputSchema.validate(frame, lazy=True)
 
     assert result.equals(frame)
     with pytest.raises(SchemaErrors):
         MobilityAuthorArticlesOutputSchema.validate(
-            pd.DataFrame({"doi": ["10/example"]}), lazy=True
+            pd.DataFrame(
+                {
+                    "eid": ["paper-1"],
+                    "author_ids": [1001],
+                    "doi": ["10/example"],
+                }
+            ),
+            lazy=True,
         )
 
 

@@ -14,10 +14,10 @@ from acib.mobility.constants import (
 from acib.mobility.inbreeding import (
     InbreedingResult,
     analyze_authors,
+    author_article_export,
     build_author_summary_row,
     detect_publication_mobility_spell,
     first_publication_affiliation_estimate,
-    unique_author_articles,
     write_inbreeding_outputs,
 )
 from acib.mobility.input import (
@@ -975,13 +975,14 @@ def test_first_n_publications_method_remains_selectable() -> None:
     assert pd.isna(row["n_publications_in_early_window"])
 
 
-def test_unique_author_articles_keeps_one_row_per_eid() -> None:
+def test_author_article_export_groups_affiliations_per_author_and_article() -> None:
     article_author_df = pd.DataFrame(
         [
             {
                 "eid": "paper",
                 "author_ids": 1001,
                 "author_afids": 10,
+                "unmapped_id": "10-11",
                 "cover_date": "2020-01-01",
                 "doi": "10/example",
                 "source_id": "journal-1",
@@ -990,35 +991,83 @@ def test_unique_author_articles_keeps_one_row_per_eid() -> None:
                 "eid": "paper",
                 "author_ids": 1001,
                 "author_afids": 20,
+                "unmapped_id": "10-11",
                 "cover_date": "2020-01-01",
                 "doi": "10/example",
+                "source_id": "journal-1",
+            },
+            {
+                "eid": "paper",
+                "author_ids": 1002,
+                "author_afids": 30,
+                "unmapped_id": 30,
+                "cover_date": "2020-01-01",
+                "doi": "10/example",
+                "source_id": "journal-1",
+            },
+            {
+                "eid": "unassigned-paper",
+                "author_ids": None,
+                "author_afids": 40,
+                "unmapped_id": 40,
+                "cover_date": "2021-01-01",
+                "doi": "10/unassigned",
                 "source_id": "journal-1",
             },
         ]
     )
 
-    result = unique_author_articles(article_author_df)
+    result = author_article_export(article_author_df)
 
-    assert len(result) == 1
-    assert result.loc[0, "eid"] == "paper"
-    assert result.loc[0, "author_afids"] == 10
-    assert result.loc[0, "doi"] == "10/example"
+    assert len(result) == 2
+    assert result[["author_ids", "eid"]].to_records(index=False).tolist() == [
+        (1001, "paper"),
+        (1002, "paper"),
+    ]
+    assert result.loc[0, "author_afids"] == "10;20"
+    assert result.loc[0, "unmapped_id"] == "10;11"
+    assert result.loc[1, "author_afids"] == "30"
+    assert result.loc[1, "unmapped_id"] == "30"
+    assert result["doi"].tolist() == ["10/example", "10/example"]
+    assert result["author_ids"].dtype == "int64"
 
 
-def test_write_inbreeding_outputs_writes_unique_author_articles(tmp_path: Path) -> None:
+def test_write_inbreeding_outputs_writes_three_artifacts(tmp_path: Path) -> None:
     result = InbreedingResult(
         author_affiliations=pd.DataFrame(
             {"author_ids": [1001], "affiliation_id": [10], "affiliation_id_parent": [pd.NA]}
         ),
         author_summary=pd.DataFrame({"author_ids": [1001], "is_inbreeding_proxy": [True]}),
-        author_articles=pd.DataFrame({"eid": ["paper"], "doi": ["10/example"]}),
+        author_articles=pd.DataFrame(
+            {
+                "eid": ["paper"],
+                "author_ids": [1001],
+                "author_afids": ["10;20"],
+                "unmapped_id": ["100;200"],
+                "doi": ["10/example"],
+            }
+        ),
     )
 
     outputs = MobilityOutputs(directory=tmp_path)
     write_inbreeding_outputs(result=result, outputs=outputs)
 
     articles = pd.read_csv(tmp_path / "author_articles.csv")
-    assert articles.to_dict(orient="records") == [{"eid": "paper", "doi": "10/example"}]
+    assert articles.to_dict(orient="records") == [
+        {
+            "eid": "paper",
+            "author_ids": 1001,
+            "author_afids": "10;20",
+            "unmapped_id": "100;200",
+            "doi": "10/example",
+        }
+    ]
+    assert not (tmp_path / "author_affiliations_unique.csv").exists()
+    assert {path.name for path in outputs.all_paths()} == {
+        "author_affiliations.csv",
+        "author_inbreeding_proxy.csv",
+        "author_articles.csv",
+    }
 
 
 def test_detect_publication_mobility_counts_away_years_abroad() -> None:

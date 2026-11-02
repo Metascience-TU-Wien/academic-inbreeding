@@ -70,7 +70,6 @@ def test_mobility_resolves_inputs_from_canonical_owners(tmp_path: Path) -> None:
     assert config.affiliations == PROJECT_ROOT / "data/input/author_affiliation.gpkg"
     assert config.outputs.all_paths() == (
         PROJECT_ROOT / "data/slurm/output/mobility/author_affiliations.csv",
-        PROJECT_ROOT / "data/slurm/output/mobility/author_affiliations_unique.csv",
         PROJECT_ROOT / "data/slurm/output/mobility/author_inbreeding_proxy.csv",
         PROJECT_ROOT / "data/slurm/output/mobility/author_articles.csv",
     )
@@ -161,4 +160,4 @@ def test_mobility_pipeline_config_records_external_geo_input(tmp_path: Path) -> 
 
 def test_mobility_outputs_must_be_distinct(tmp_path: Path) -> None:
     outputs = MobilityOutputs(directory=tmp_path / "mobility")
-    assert len(set(outputs.all_paths())) == 4
+    assert len(set(outputs.all_paths())) == 3

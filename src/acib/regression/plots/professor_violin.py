@@ -323,6 +323,7 @@ def plot_professor_violin(data: ProfessorViolinPlotData) -> tuple[Figure, tuple[
             x=config.title_column,
             y=_PLOT_VALUE_COLUMN,
             hue=_STATUS_LABEL_COLUMN,
+            legend=False,
             hue_order=[INBREEDING_LABELS[False], INBREEDING_LABELS[True]],
             order=list(data.title_order),
             palette={
@@ -340,8 +341,6 @@ def plot_professor_violin(data: ProfessorViolinPlotData) -> tuple[Figure, tuple[
             saturation=1.0,
             ax=axis,
         )
-        if axis.legend_ is not None:
-            axis.legend_.remove()
         existing = len(axis.collections)
         sns.violinplot(
             data=frame,
@@ -358,6 +357,8 @@ def plot_professor_violin(data: ProfessorViolinPlotData) -> tuple[Figure, tuple[
             fill=False,
             ax=axis,
         )
+        if axis.legend_ is not None:
+            axis.legend_.remove()
         for collection in axis.collections[existing:]:
             collection.set_clip_on(False)
             collection.set_zorder(6)

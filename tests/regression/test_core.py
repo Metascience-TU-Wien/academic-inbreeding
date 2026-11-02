@@ -31,12 +31,12 @@ from acib.regression.input import (
     prepare_author_summary,
 )
 from acib.regression.latex import (
+    LatexModelColumn,
     format_p_value_cell,
-    model10_without_international_mobility_note,
     model_comparison_latex_table,
     model_inference_note,
     outcome_header,
-    table_postamble,
+    performance_table_note,
     table_preamble,
 )
 from acib.regression.models import (
@@ -111,7 +111,12 @@ def test_build_regression_input_aggregates_outcomes_and_subject_counts() -> None
 
 def test_build_regression_input_preserves_distinct_researcher_ids_per_cluster() -> None:
     articles = pd.DataFrame(
-        {"eid": ["e1"], "author_ids": ["a1"], "pp_top_10": [1.0], "hazen_perc_med": [90.0]}
+        {
+            "eid": ["e1"],
+            "author_ids": ["a1"],
+            "pp_top_10": [1.0],
+            "hazen_perc_med": [90.0],
+        }
     )
     authors = tiny_authors(["a1", "a1"])
     authors["selected_disambiguated_cluster_id"] = ["cluster-1", "cluster-1"]
@@ -121,8 +126,16 @@ def test_build_regression_input_preserves_distinct_researcher_ids_per_cluster() 
     assert result[["sc_id", "selected_disambiguated_cluster_id", "is_inbred"]].to_dict(
         orient="records"
     ) == [
-        {"sc_id": 101, "selected_disambiguated_cluster_id": "cluster-1", "is_inbred": True},
-        {"sc_id": 102, "selected_disambiguated_cluster_id": "cluster-1", "is_inbred": False},
+        {
+            "sc_id": 101,
+            "selected_disambiguated_cluster_id": "cluster-1",
+            "is_inbred": True,
+        },
+        {
+            "sc_id": 102,
+            "selected_disambiguated_cluster_id": "cluster-1",
+            "is_inbred": False,
+        },
     ]
 
 
@@ -439,7 +452,13 @@ def test_regression_suite_excludes_configured_titles() -> None:
         {
             "outcome": [0.1, 0.2, 0.25, 0.35, 0.5],
             "academic_age": [1, 2, 3, 4, 5],
-            "title": ["Ao. Prof.", "Full Prof.", "FH-Ass. Prof.", "Ass. Prof.", "FH-Prof."],
+            "title": [
+                "Ao. Prof.",
+                "Full Prof.",
+                "FH-Ass. Prof.",
+                "Ass. Prof.",
+                "FH-Prof.",
+            ],
         }
     )
     result = RegressionSuite(
@@ -521,7 +540,11 @@ def test_mle_warning_policy_retains_diagnostic_failure() -> None:
     )
     with pytest.warns(RuntimeWarning, match="gradient norm"):
         diagnostic = validate_mle_fit(
-            fit, model_id="m7", dependent_variable="n_public", model_type="nb", policy="warn"
+            fit,
+            model_id="m7",
+            dependent_variable="n_public",
+            model_type="nb",
+            policy="warn",
         )
     assert "gradient norm" in diagnostic["mle_failure_reasons"]
 
@@ -1024,7 +1047,9 @@ def test_model7_fractional_ame_differentiates_quadratic_age_and_hides_square_row
     assert not effects.query("term == 'AME[I(academic_age ** 2)]'").shape[0]
 
 
-def test_ols_hc3_and_alternative_results_write_to_separate_files(tmp_path: Path) -> None:
+def test_ols_hc3_and_alternative_results_write_to_separate_files(
+    tmp_path: Path,
+) -> None:
     from acib.regression.config import RegressionOutputs
 
     rng = np.random.default_rng(143)
@@ -1136,7 +1161,7 @@ def test_latex_performance_template_uses_requested_captions_and_robust_se_header
         in "\n".join(relative)
     )
     assert (
-        r"\caption{Association between academic inbreeding and absolute performance}"
+        r"\caption{Association between academic inbreeding and absolute research performance}"
         in "\n".join(absolute)
     )
     assert "S[table-format=-2.2]" in absolute
@@ -1144,40 +1169,43 @@ def test_latex_performance_template_uses_requested_captions_and_robust_se_header
     assert r"\textbf{Robust}" in "\n".join(header)
 
 
-def test_absolute_hc3_template_uses_requested_note() -> None:
-    postamble = table_postamble(
-        model_id="m9",
+def test_absolute_performance_note_distinguishes_nb_ames_from_ols_coefficients() -> None:
+    columns = [
+        LatexModelColumn(
+            outcome,
+            cast(
+                Any,
+                SimpleNamespace(
+                    model_type="nb" if outcome == "n_public" else "olshc3",
+                    formula="outcome ~ title + academic_age",
+                    share_control_type="detailed_asjc_shares",
+                    fit=SimpleNamespace(cov_type="HC3"),
+                ),
+            ),
+        )
+        for outcome in ("n_public", "P_top10", "P_top5", "P_top1")
+    ]
+    note = performance_table_note(
+        columns=columns,
         outcomes=("n_public", "P_top10", "P_top5", "P_top1"),
         performance_type="absolute",
-        model_types={
-            "n_public": "nb",
-            "P_top10": "olshc3",
-            "P_top5": "olshc3",
-            "P_top1": "olshc3",
-        },
+        model_id="m9",
     )
-    note = "\n".join(postamble)
 
+    assert note.startswith(r"\textit{Notes.} Reported are")
+    assert "negative binomial regression (NB)" in note
     assert (
-        r"Reported are average marginal effects (AMEs) or coefficients (Coef.), robust "
-        r"standard errors (Robust SE), and $p$-values ($P$)."
+        "average marginal effects (AMEs) from negative binomial regression (NB) for Publications "
+        "and ordinary least squares (OLS) regression coefficients (Coef.) for "
+        r"P(top 10\%), P(top 5\%), and P(top 1\%)"
     ) in note
-    assert (
-        r"Total publication output is estimated using negative binomial regression, with AMEs "
-        r"expressed in publication-count units."
-    ) in note
-    assert (
-        "AMEs represent average changes in predicted publication counts, calculated as discrete "
-        "differences for categorical variables and derivatives for continuous variables."
-    ) in note
-    assert "ordinary least squares (OLS)" in note
-    assert "fractional publication-count units" in note
-    assert "Negative binomial AME standard errors are calculated using the delta method" in note
-    assert (
-        "Medicine as the reference field because it has the largest overall publication share."
-        in note
-    )
-    assert "half-up rounding" not in note
+    assert "AMEs for Publications represent changes in the expected publication count" in note
+    assert "number of publications per professor (Publications)" in note
+    assert "OLS coefficients for the P indicators represent changes in fractionally counted" in note
+    assert "OLS $p$-values are based on $t$-tests" in note
+    assert "negative binomial AME $p$-values are based on $z$-tests" in note
+    assert "Full Prof. (Full Professor) is the reference category" in note
+    assert "Adjusted $R^2$ denotes the adjusted coefficient of determination" in note
 
 
 def test_regression_suite_sorts_printed_models_in_specification_order(
@@ -1258,30 +1286,6 @@ def test_model_comparison_table_reports_specification_and_fit_information() -> N
     assert r"\textbf{M1}" in table and r"\textbf{M2}" in table
     assert "AIC" in table and "BIC" in table
     assert "Observations" not in table
-
-
-def test_model10_note_describes_negative_binomial_count_model() -> None:
-    note = model10_without_international_mobility_note(
-        relative_outcomes=("hazen_perc_med", "pp_top_10", "pp_top_5", "pp_top_1"),
-        absolute_outcomes=("n_public", "P_top10", "P_top5", "P_top1"),
-        model_types={
-            "n_public": "nb",
-            "hazen_perc_med": "olshc3",
-            "pp_top_10": "olshc3",
-            "pp_top_5": "olshc3",
-            "pp_top_1": "olshc3",
-            "P_top10": "olshc3",
-            "P_top5": "olshc3",
-            "P_top1": "olshc3",
-        },
-    )
-    assert "Reported are regression coefficients (Coef.) or average marginal effects (AMEs)" in note
-    assert "negative binomial (NB) regression" in note
-    assert "average discrete difference in predicted publication counts" in note
-    assert "ordinary least squares (OLS)" in note
-    assert "fractional publication-count units" in note
-    assert "delta method" in note
-    assert r"Table~\ref{tab:analytical_variables}" in note
 
 
 def test_pipeline_settings_conversion_keeps_model_families_and_inflation_formula(
@@ -1403,14 +1407,19 @@ def test_descriptive_statistics_keeps_group_sample_and_scaled_mwpr_summary() -> 
     assert r"\multicolumn{4}{c}{\textbf{Non-inbred}}" in table
     assert r"\multicolumn{4}{c}{\textbf{Inbred}}" in table
     assert r"Professors, \(n\) & \multicolumn{4}{l}{1} & \multicolumn{4}{l}{2}" in table
-    assert r"mwPR [\%] & 50.0 & -- & 50.0 & 50.0 & 65.0 & 7.1 & 60.0 & 70.0" in table
-    assert r"PP(top 10\%) [\%] & 10.0 & -- & 10.0 & 10.0 & 25.0 & 7.1 & 20.0 & 30.0" in table
+    assert (
+        "Mean weighted percentile rank (mwPR) [percentile points] & 50.0 & -- & 50.0 & "
+        "50.0 & 65.0 & 7.1 & 60.0 & 70.0"
+    ) in table
+    assert (
+        r"PP(top 10\%) [percentage points] & 10.0 & -- & 10.0 & 10.0 & 25.0 & 7.1 & " r"20.0 & 30.0"
+    ) in table
     assert r"Publications [count] & 4 & -- & 4 & 4 & 7 & 1 & 6 & 8" in table
-    assert r"P(top 10\%) [count]" in table
-    assert r"P(top 5\%) [count]" in table
-    assert r"P(top 1\%) [count]" in table
-    assert "Co-affil. pub. share [\\%]" in table
-    assert "Mean coauthors per pub." in table
+    assert r"P(top 10\%) [fractional publication counts]" in table
+    assert r"P(top 5\%) [fractional publication counts]" in table
+    assert r"P(top 1\%) [fractional publication counts]" in table
+    assert "Co-affiliation publication share [percentage points]" in table
+    assert "Mean coauthors" in table
     assert "Domestic mobility [years]" in table
     assert "International mobility [years]" in table
     assert "First publication year" in table
@@ -1420,14 +1429,14 @@ def test_descriptive_statistics_keeps_group_sample_and_scaled_mwpr_summary() -> 
     assert r"\quad Ao. Prof. & \multicolumn{4}{l}{0 (0)} & " r"\multicolumn{4}{l}{1 (50)}" in table
     assert r"\textit{Notes.}" in table
     assert (
-        "Continuous variables are reported as mean, standard deviation (SD), minimum, and maximum"
+        "Continuous variables are summarized by mean, standard deviation (SD), minimum, and maximum"
         in table
     )
-    assert "mwPR is reported in percentile points" in table
+    assert "mean weighted percentile rank (mwPR) is reported in percentile points" in table
     # Target format puts absolute outcomes in the main variable sequence, with no source heading
     # or extra prose about fractional sums.
     assert r"\textbf{Absolute performance variables}" not in table
-    assert "fractional sums of publication-level indicators" not in table
+    assert "fractionally counted highly cited publication counts" in table
     assert (
         "Academic-title entries are counts with percentages within each academic-inbreeding group"
         not in table
@@ -1530,7 +1539,8 @@ def test_model9_latex_table_preserves_full_professor_and_field_reference_asserti
     table = result.model_9_latex_table
     assert table.startswith(r"\begin{table}[htbp]")
     assert (
-        r"\caption{Association between academic inbreeding and relative citation impact}" in table
+        r"\caption{Association between academic inbreeding and relative citation impact (\(n="
+        in table
     )
     assert r"\textbf{Robust}\\\textbf{SE}" in table
     assert r"Academic title (ref.: Full Prof.)" in table
@@ -1620,8 +1630,8 @@ def test_each_outcome_selects_only_its_configured_estimator(
     absolute_table = (outputs.latex_dir / "absolute_performance_m1.tex").read_text()
     assert r"\textbf{AME}" in relative_table
     assert r"\textbf{AME}" in absolute_table
-    assert "fractional-logit AMEs" in relative_table
-    assert "average marginal effects are reported in publication-count units" in absolute_table
+    assert "fractional logit" in relative_table
+    assert "fractional publication-count units" in absolute_table
     assert not list(outputs.latex_dir.glob("*frac*.tex"))
     assert not list(outputs.latex_dir.glob("*ppml*.tex"))
 
@@ -1652,7 +1662,10 @@ def test_mixed_estimator_performance_table_labels_each_outcome_correctly() -> No
             model_types={"linear_outcome": "olshc3", "fractional_outcome": "frac"},
             relative_performance_outcomes=outcomes,
             absolute_performance_outcomes=(),
-            outcome_aliases={"linear_outcome": "Linear", "fractional_outcome": "Fraction"},
+            outcome_aliases={
+                "linear_outcome": "Linear",
+                "fractional_outcome": "Fraction",
+            },
             exclude_titles=(),
         ),
     ).fit()
@@ -1666,8 +1679,8 @@ def test_mixed_estimator_performance_table_labels_each_outcome_correctly() -> No
 
     assert r"\textbf{Coef.}" in table
     assert r"\textbf{AME}" in table
-    assert "Linear uses olshc3 (coefficients)" in table
-    assert "Fraction uses frac (AMEs)" in table
+    assert "Linear uses ordinary least squares (OLS) (coefficients)" in table
+    assert "Fraction uses fractional logit (AMEs)" in table
 
 
 def test_source_model10_full_specification_table_and_note_are_renderable() -> None:
@@ -1730,7 +1743,12 @@ def test_source_model10_full_specification_table_and_note_are_renderable() -> No
     assert table.count(r"\multicolumn{1}{c}{NB}") == 1
     assert table.count(r"\multicolumn{1}{c}{Coef.}") == len(outcomes) - 1
     assert table.count(r"\multicolumn{1}{c}{AME}") == 1
-    assert "average discrete difference in predicted publication counts" in table
+    assert r"\(n=400\)" in table
+    assert "Publications AMEs are expressed in publication-count units" in table
+    assert "AMEs are average derivatives for continuous predictors" in table
+    assert "average discrete differences for categorical predictors" in table
+    assert "HC3 heteroskedasticity-robust standard errors (Robust SE)" in table
+    assert r"Table~\ref{tab:analytical_variables}" in table
 
 
 def test_source_model_comparison_tables_keep_all_specification_assertions(
@@ -1788,16 +1806,16 @@ def test_source_model_comparison_tables_keep_all_specification_assertions(
     table = model_comparison_latex_table(result.models, dependent_variable="pp_top_1")
     assert (
         r"\caption{Association between academic inbreeding and PP(top 1\%) "
-        r"across regression model specifications}" in table
+        r"across regression model specifications (\(n=160\))}" in table
     )
     assert r"\providecommand{\coef}[3]{#1 & .#2\textsuperscript{#3}}" in table
     assert r"\providecommand{\fit}[1]{\multicolumn{2}{c}{\scriptsize #1}}" in table
     assert r"*{10}{r@{}l}" in table
     assert r"\textbf{M1}" in table and r"\textbf{M9}" in table and r"\textbf{M10}" in table
     assert r"\se{" in table
-    assert r"Acad.\ age$^2$" in table
+    assert "Academic age$^2$" in table
     assert "Total mobility" in table
-    assert r"Co-affil.\ pub.\ share" in table
+    assert "Co-affiliation publication share" in table
     assert r"\multicolumn{2}{c}{---}" in table
     assert table.count(r"\txt{Yes}") == 3
     first = result.models[("pp_top_1", "m1")]
@@ -1806,9 +1824,11 @@ def test_source_model_comparison_tables_keep_all_specification_assertions(
     assert "\nObservations" not in table
     assert table.index("AIC") > table.index(r"Adjusted $R^2$")
     assert table.index("BIC") > table.index("AIC")
-    assert rf"$N={int(first.fit.nobs):,}$ in all models." in table
-    assert "Coefficients and standard errors are reported in percentage points." in table
-    assert "AIC = Akaike Information Criterion; BIC = Bayesian Information Criterion." in table
+    assert "effects are expressed in percentage points" in table
+    assert "M1–M10 denote different regression specifications" in table
+    assert "AIC denotes the Akaike information criterion" in table
+    assert "BIC denotes the Bayesian information criterion" in table
+    assert "Lower AIC and BIC indicate a preferable balance" in table
     assert r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$." in table
     assert '\\"' not in table
     assert "model_comparison_pp_top_1.tex" in result.latex_tables
@@ -1816,14 +1836,14 @@ def test_source_model_comparison_tables_keep_all_specification_assertions(
     assert r"\textbf{M10}" in count_table
     assert "Inbreeding" in count_table
     assert "Domestic mobility" in count_table
-    assert "First pub.\\ year" in count_table
+    assert "First publication year" in count_table
     assert r"Adjusted $R^2$" in count_table
     robustness = result.latex_tables["model9_absolute_top_percentile_robustness.tex"]
-    assert "fractional counts of top-cited publications (Model 9)" in robustness
+    assert "fractional counts of highly cited publications (Model 9)" in robustness
     assert r"P(top 10\%)" in robustness
     assert r"P(top 5\%)" in robustness
     assert r"P(top 1\%)" in robustness
-    assert "each professor-publication pair is counted once" in robustness
+    assert "fractionally counted numbers of highly cited publications" in robustness
     for outcome, label in (
         ("P_top10", r"P(top 10\%)"),
         ("P_top5", r"P(top 5\%)"),
@@ -1832,7 +1852,7 @@ def test_source_model_comparison_tables_keep_all_specification_assertions(
         comparison = result.latex_tables[f"model_comparison_{outcome}.tex"]
         assert label in comparison
         assert r"\textbf{M1}" in comparison and r"\textbf{M9}" in comparison
-        assert "unrounded sums of publication-level fractional top-x" in comparison
+        assert "fractional publication-count units" in comparison
         assert "reported in percentage points" not in comparison
     from acib.regression.config import RegressionOutputs
 
@@ -1864,10 +1884,10 @@ def test_n_public_negative_binomial_comparison_uses_full_rows_without_adjusted_r
     assert r"\textbf{M10}" in table
     assert table.count(r"\multicolumn{2}{c}{\textit{AME}}") == len(specs)
     assert "Inbreeding" in table
-    assert r"Acad.\ age" in table
+    assert "Academic age" in table
     assert "AIC" in table and "BIC" in table
     assert r"Adjusted $R^2$" not in table
-    assert "Publications average marginal effects are in publication-count units" in table
+    assert "Publications AMEs are expressed in publication-count units" in table
     assert "average marginal effects (AMEs)" in table
-    assert "HC3 heteroskedasticity-robust standard errors in parentheses" in table
-    assert "negative-binomial inference uses $z$-tests and HC3 robust standard errors" in table
+    assert "HC3 heteroskedasticity-robust standard errors (Robust SE)" in table
+    assert "p-values are based on z-tests" in table

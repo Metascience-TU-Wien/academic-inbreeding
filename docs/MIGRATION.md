@@ -641,6 +641,44 @@ established by inspecting implementations.
 - No later stage was migrated, no scientific method was changed, and no commit
   was created.
 
+### Approved mobility output follow-up
+
+- The user approved changing `author_articles.csv` from one row per EID to one
+  row per mobility author profile and EID. The output now aggregates all
+  resolved `author_afids` and original `unmapped_id` values into semicolon-
+  delimited columns while retaining the other article fields. Existing
+  author/affiliation association and parent-resolution logic remains unchanged;
+  rows without an author ID are excluded from this per-author export and
+  integral IDs are retained as `int64`. This is an output-contract change only.
+  Regression does not consume this artifact and continues reading the
+  configured external article dataset.
+- The user also approved stopping production of `author_affiliations_unique.csv`.
+  Mobility now declares/writes three outputs: `author_affiliations.csv`,
+  `author_inbreeding_proxy.csv`, and `author_articles.csv`. Existing files in
+  user data directories are not deleted by this code change.
+- After explicit Phase 4 approval, the existing mobility tests were updated to
+  assert the changed output contract. `uv run pytest tests/mobility/`
+  passed (60 tests) and `uv run pytest tests/integration/` passed (24 tests).
+  Coverage checks grouped affiliations by author/EID, preserves distinct
+  authors on the same EID, serializes resolved and original IDs, validates the
+  schema, checks null author-ID handling and integer dtype, and confirms the
+  removed unique-affiliation artifact is not written.
+- Ran the original mobility tests read-only with bytecode and pytest cache
+  writing disabled: 32 passed. A representative source/target comparison of
+  author affiliation histories and scientific summary fields
+  (`is_inbreeding_proxy`, status, publication-history years, and first/last
+  affiliation sets) was identical. The intended CSV contract differences are
+  tested separately.
+- Final `uv run ruff check src/acib/mobility tests/mobility
+  tests/integration/test_mobility_workflow.py` passed;
+  `uv run --no-project --with mypy mypy --config-file mypy.ini
+  src/acib/mobility tests/mobility tests/integration/test_mobility_workflow.py`
+  passed with no type errors (mypy reported existing unused-config notices).
+  Pre-commit passed all applicable hooks on changed files. Tests emitted 16
+  existing mobility warnings and five warnings in integration tests: pandas
+  `FutureWarning`s for affiliation-parent aggregation and multiprocessing's
+  `fork()` deprecation warning. No tests failed.
+
 ## Phase 2 — `regression` code migration
 
 ### Configuration ownership and dependencies
@@ -728,6 +766,19 @@ established by inspecting implementations.
   model-dependent LaTeX tables and conditional figures are grouped under the
   configured `latex_dir` and `plots_dir`. No output root or legacy output
   filename is hardcoded in the regression package.
+- The user approved updating the model-comparison LaTeX tables to the supplied
+  template: sample size moves from the caption to the notes, the estimator row
+  is omitted, and the requested labels and notes are used for OLS models with
+  HC3 covariance. The coefficient/effect header row is omitted for mwPR,
+  P(top x%), PP(top x%), and `n_public` comparison tables. Notes identify each
+  table's actual dependent variable. Negative-binomial `n_public` comparison
+  tables report AMEs and use NB-specific notes, including dynamic sample size
+  and HC3/delta-method/z-test inference. Other estimator families retain
+  estimator-appropriate notes. The sentences defining `Coef.` and adjusted
+  $R^2$ are omitted from generated table notes wherever they previously
+  appeared. Model estimates and scientific calculations are unchanged. Static
+  checks passed; Phase 4 behavioral verification of this follow-up remains
+  pending separate approval.
 
 ### Phase 3 — code migration report and Phase 4 gate
 

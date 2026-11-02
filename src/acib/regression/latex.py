@@ -185,6 +185,7 @@ def performance_latex_table(
         model_id=model_id,
         outcomes=outcomes,
         performance_type=performance_type,
+        sample_sizes=tuple(int(column.model.fit.nobs) for column in columns),
     )
     lines.extend(
         outcome_header(
@@ -198,7 +199,7 @@ def performance_latex_table(
     lines.append("")
     lines.append(coefficient_row("Inbreeding", columns, term_name="C(is_inbred)[T.True]"))
     lines.append("")
-    lines.append(coefficient_row(r"Acad.\ age", columns, term_name="academic_age"))
+    lines.append(coefficient_row("Academic age", columns, term_name="academic_age"))
     lines.append("")
     lines.append(r"\addlinespace[3pt]")
     lines.append("")
@@ -212,7 +213,7 @@ def performance_latex_table(
         lines.append("")
     lines.append(
         coefficient_row(
-            r"Co-affil.\ pub.\ share",
+            "Co-affiliation publication share",
             columns,
             term_name="coaffiliation_publication_share",
         )
@@ -228,9 +229,11 @@ def performance_latex_table(
     lines.append("")
     lines.append(coefficient_row("Domestic mobility", columns, term_name="n_away_years_domestic"))
     lines.append("")
-    lines.append(coefficient_row(r"Int.\ mobility", columns, term_name="n_away_years_abroad"))
+    lines.append(
+        coefficient_row("International mobility", columns, term_name="n_away_years_abroad")
+    )
     lines.append("")
-    lines.append(coefficient_row(r"First pub.\ year", columns, term_name="first_year"))
+    lines.append(coefficient_row("First publication year", columns, term_name="first_year"))
     lines.append("")
     lines.append(r"\addlinespace[3pt]")
     lines.append("")
@@ -238,9 +241,12 @@ def performance_latex_table(
     lines.append("")
     lines.append(r"\midrule")
     lines.append("")
-    lines.append(observations_row(columns))
+    sample_sizes = {int(column.model.fit.nobs) for column in columns}
+    if len(sample_sizes) > 1:
+        lines.append(observations_row(columns))
     lines.append("")
-    lines.append(adjusted_r_squared_row(columns))
+    if all(column.model.model_type in OLS_MODEL_TYPES for column in columns):
+        lines.append(adjusted_r_squared_row(columns))
     lines.extend(
         table_postamble(
             model_id=model_id,
@@ -248,6 +254,7 @@ def performance_latex_table(
             performance_type=performance_type,
             outcome_aliases=outcome_aliases,
             model_types={column.dependent_variable: column.model.model_type for column in columns},
+            columns=columns,
         )
     )
     return "\n".join(lines)
@@ -278,11 +285,11 @@ def model10_without_international_mobility_latex_table(
         LatexModelColumn(dependent_variable=outcome, model=models[(outcome, "m10")])
         for outcome in outcomes
     ]
-    sample_size = int(columns[0].model.fit.nobs)
+    sample_sizes = tuple(int(column.model.fit.nobs) for column in columns)
     caption = (
         r"\caption{Association between academic inbreeding and research performance excluding "
-        rf"international mobility (\(n={sample_size:,}\))}}"
-    ).replace(",", "{,}")
+        rf"international mobility{latex_sample_size_caption(sample_sizes)}}}"
+    )
     lines = [
         r"\begin{table}[htbp]",
         r"\centering",
@@ -339,18 +346,33 @@ def model10_without_international_mobility_latex_table(
             latex_row(["Inbreeding", *[format_model10_estimate(value) for value in estimates]]),
             "",
             latex_row(
-                ["Robust SE", *[format_model10_standard_error(value) for value in estimates]]
+                [
+                    (
+                        "Robust SE"
+                        if all(column_uses_robust_standard_errors(column) for column in columns)
+                        else "SE"
+                    ),
+                    *[format_model10_standard_error(value) for value in estimates],
+                ]
             ),
             "",
             latex_row([r"$P$", *[format_model10_p_value(value) for value in estimates]]),
-            "",
-            r"\midrule",
+        ]
+    )
+    if len(set(sample_sizes)) > 1:
+        lines.append(
             latex_row(
                 [
-                    "Estimator",
-                    *[model10_estimator_cell(column) for column in columns],
+                    "Observations",
+                    *[latex_integer(sample_size) for sample_size in sample_sizes],
                 ]
-            ),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            r"\midrule",
+            latex_row(["Estimator", *[model10_estimator_cell(column) for column in columns]]),
             latex_row(
                 [
                     "Effect",
@@ -367,11 +389,8 @@ def model10_without_international_mobility_latex_table(
             r"\begin{minipage}{\textwidth}",
             r"\footnotesize",
             model10_without_international_mobility_note(
-                relative_outcomes=relative_outcomes,
-                absolute_outcomes=absolute_outcomes,
-                model_types={
-                    column.dependent_variable: column.model.model_type for column in columns
-                },
+                columns=columns,
+                outcomes=outcomes,
                 outcome_aliases=outcome_aliases,
             ),
             r"\end{minipage}",
@@ -384,6 +403,61 @@ def model10_without_international_mobility_latex_table(
 
 def format_model10_estimate(coefficient: LatexCoefficient | None) -> str:
     return f"{coefficient.estimate:.2f}" if coefficient is not None else "--"
+
+
+def model10_without_international_mobility_note(
+    *,
+    columns: list[LatexModelColumn],
+    outcomes: tuple[str, ...],
+    outcome_aliases: Mapping[str, str] | None,
+) -> str:
+    """Return estimator-appropriate notes for the Model 10 robustness table.
+
+    :param columns: Fitted outcome/model columns in the table.
+    :param outcomes: Outcome keys in display order.
+    :param outcome_aliases: Optional dependent-variable labels.
+    :return: LaTeX note describing estimators, outcomes, inference, and controls.
+    """
+    models_by_outcome = {column.dependent_variable: column.model for column in columns}
+    canonical_model_10 = all(
+        models_by_outcome[outcome].model_type == ("nb" if outcome == N_PUBLIC else "olshc3")
+        for outcome in outcomes
+    )
+    if not canonical_model_10:
+        return performance_table_note(
+            columns=columns,
+            outcomes=outcomes,
+            performance_type="mixed",
+            model_id="m10",
+            outcome_aliases=outcome_aliases,
+            has_p_column=True,
+        )
+    return (
+        r"\textit{Notes.} Reported are regression coefficients (Coef.) or average marginal "
+        r"effects (AMEs); estimators are ordinary least squares (OLS) and negative binomial "
+        r"regression (NB). AME denotes average marginal effect; P denotes p-value. "
+        r"The dependent variables are the mean weighted percentile "
+        r"rank (mwPR) and the proportions of publications in the respective citation-impact "
+        r"percentiles (PP(top 10\%), PP(top 5\%), and PP(top 1\%)) and the number of "
+        r"publications (Publications) and fractionally counted numbers of highly cited "
+        r"publications (P(top 10\%), P(top 5\%), and P(top 1\%)). mwPR effects are expressed "
+        r"in percentile points; PP denotes proportions of publications in the respective "
+        r"citation-impact percentiles; their effects are expressed in percentage points. AMEs "
+        r"for Publications represent changes in the expected number of publications, whereas "
+        r"coefficients for P(top 10\%), P(top 5\%), and P(top 1\%) represent changes in "
+        r"fractionally counted numbers of highly cited publications. HC3 heteroskedasticity-"
+        r"robust standard errors (Robust SE); OLS $p$-values are based on $t$-tests, and NB "
+        r"AME $p$-values are based on $z$-tests. AMEs are average derivatives for continuous "
+        r"predictors and average discrete differences for categorical predictors. Full Prof. "
+        r"(Full Professor) is the reference category for academic title; all academic-title "
+        r"abbreviations are defined in Table~\ref{tab:prof_titles}. Research-field composition "
+        r"is represented by fractional publication shares across 27 major fields of the All "
+        r"Science Journal Classification (ASJC), with Medicine as the reference field because "
+        r"it has the largest overall publication share. All models include the explanatory "
+        r"variables of the full specification except international mobility. Significance "
+        r"levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. Definitions and calculations "
+        r"of the analytical variables are provided in Table~\ref{tab:analytical_variables}."
+    )
 
 
 def format_model10_standard_error(coefficient: LatexCoefficient | None) -> str:
@@ -430,90 +504,20 @@ def model10_effect_cell(column: LatexModelColumn) -> str:
     return rf"\multicolumn{{1}}{{c}}{{{effect}}}"
 
 
-def model10_without_international_mobility_note(
-    *,
-    relative_outcomes: tuple[str, ...],
-    absolute_outcomes: tuple[str, ...],
-    model_types: dict[str, str],
-    outcome_aliases: Mapping[str, str] | None = None,
-) -> str:
-    if (
-        relative_outcomes == RESEARCH_PERFORMANCE_OUTCOMES
-        and absolute_outcomes == ABSOLUTE_PERFORMANCE_OUTCOMES
-        and all(model_types.get(outcome) == "olshc3" for outcome in RESEARCH_PERFORMANCE_OUTCOMES)
-        and model_types.get(N_PUBLIC) == "nb"
-        and all(
-            model_types.get(outcome) == "olshc3" for outcome in ABSOLUTE_TOP_PERCENTILE_OUTCOMES
-        )
-    ):
-        return (
-            r"\textit{Notes.} Reported are regression coefficients (Coef.) or average marginal "
-            r"effects (AMEs), robust standard errors (Robust SE), and $p$-values ($P$). All "
-            r"models include the explanatory variables of the full "
-            r"specification except international mobility. The relative citation-impact "
-            r"indicators (mwPR, PP(top 10\%), PP(top 5\%), and PP(top 1\%)) and the "
-            r"fractionally counted highly cited publication indicators (P(top 10\%), "
-            r"P(top 5\%), and P(top 1\%)) are estimated using ordinary least squares "
-            r"(OLS), with coefficients expressed in percentile points, percentage points, "
-            r"and fractional publication-count units, respectively. Total publication "
-            r"output (Publications) is estimated using negative binomial (NB) regression, "
-            r"with the average marginal effect (AME) representing the average discrete "
-            r"difference in predicted publication counts between inbred and non-inbred "
-            r"professors. All models use HC3 heteroskedasticity-robust standard errors. "
-            r"Negative binomial AME standard errors are calculated using the delta method, "
-            r"with $p$-values based on $z$-tests; OLS $p$-values are based on $t$-tests. "
-            r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. "
-            r"Definitions and calculations of the analytical variables are provided in "
-            r"Table~\ref{tab:analytical_variables}."
-        )
-    fractional_absolute_labels = join_labels(
-        tuple(
-            outcome_label(outcome, outcome_aliases)
-            for outcome in absolute_outcomes
-            if outcome != N_PUBLIC
-        )
-    )
-    if N_PUBLIC in absolute_outcomes and model_types.get(N_PUBLIC) == "nb":
-        publication_note = (
-            "Publications are modeled using negative binomial regression; average marginal "
-            "effects are reported in publication-count units. "
-        )
-    else:
-        publication_note = "Outcomes use their configured model families. "
-    fractional_note = (
-        f"{fractional_absolute_labels} are fractional publication counts. "
-        if fractional_absolute_labels
-        else ""
-    )
-    configured_outcomes = (*relative_outcomes, *absolute_outcomes)
-    estimator_details = []
-    for outcome in configured_outcomes:
-        model_type = model_types.get(outcome, "ols")
-        effect_type = "AMEs" if model_type in {"frac", "ppml", "nb"} else "coefficients"
-        estimator_details.append(
-            f"{outcome_label(outcome, outcome_aliases)}: {model_type} ({effect_type})"
-        )
-    estimator_note = "; ".join(estimator_details)
-    inference_note = model_inference_note(model_types)
-    return (
-        r"\textit{Notes.} Reported are outcome-specific coefficients or AMEs, standard errors, "
-        r"and $p$-values from the full specification excluding "
-        r"international mobility. "
-        "Outcome estimator/effect type: "
-        + estimator_note
-        + ". "
-        + fractional_note
-        + publication_note
-        + (inference_note + " " if inference_note else "")
-        + (
-            "Continuous AMEs are average marginal derivatives; categorical AMEs are average "
-            "discrete changes relative to the reference category. Fractional-logit AMEs use "
-            "the original outcome scale. HC3 robust covariance is used for nonlinear AMEs. "
-            if set(model_types.values()).intersection({"frac", "ppml", "nb"})
-            else ""
-        )
-        + r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$."
-    )
+def column_uses_robust_standard_errors(column: LatexModelColumn) -> bool:
+    """Return whether a fitted model uses a robust covariance estimator.
+
+    Huber RLM results expose their H1 covariance type on the model metadata
+    rather than as ``fit.cov_type``.
+
+    :param column: Fitted model column in the Model 10 table.
+    :return: Whether the model uses a covariance estimator other than nonrobust.
+    """
+    fit = column.model.fit
+    covariance_estimator = getattr(fit.model, "_acib_covariance_estimator", None)
+    if covariance_estimator is None:
+        covariance_estimator = getattr(fit, "cov_type", "nonrobust")
+    return str(covariance_estimator).upper() != "NONROBUST"
 
 
 def join_labels(labels: tuple[str, ...]) -> str:
@@ -535,12 +539,18 @@ def absolute_top_percentile_latex_table(
         LatexModelColumn(dependent_variable=outcome, model=models[(outcome, model_id)])
         for outcome in ABSOLUTE_TOP_PERCENTILE_OUTCOMES
     ]
+    sample_sizes = tuple(int(column.model.fit.nobs) for column in columns)
+    field_share_description = shared_share_control_value(
+        columns,
+        control_type="detailed_asjc_shares",
+    )
     lines = [
         r"\begin{table}[htbp]",
         r"\centering",
         (
-            r"\caption{Robustness regressions for fractional counts of top-cited "
-            r"publications (Model 9)}"
+            r"\caption{Robustness regressions for fractional counts of highly cited "
+            rf"publications (Model {model_id.removeprefix('m')})"
+            rf"{latex_sample_size_caption(sample_sizes)}}}"
         ),
         r"\label{tab:absolute_top_percentile_model9}",
         "",
@@ -571,7 +581,7 @@ def absolute_top_percentile_latex_table(
         "",
         coefficient_row("Inbreeding", columns, term_name="C(is_inbred)[T.True]"),
         "",
-        coefficient_row(r"Acad.\ age", columns, term_name="academic_age"),
+        coefficient_row("Academic age", columns, term_name="academic_age"),
         "",
         r"\addlinespace[3pt]",
         "",
@@ -583,7 +593,7 @@ def absolute_top_percentile_latex_table(
     lines.extend(
         [
             coefficient_row(
-                r"Co-affil.\ pub.\ share",
+                "Co-affiliation publication share",
                 columns,
                 term_name="coaffiliation_publication_share",
             ),
@@ -592,26 +602,33 @@ def absolute_top_percentile_latex_table(
             "",
             coefficient_row("Domestic mobility", columns, term_name="n_away_years_domestic"),
             "",
-            coefficient_row(r"Int.\ mobility", columns, term_name="n_away_years_abroad"),
+            coefficient_row("International mobility", columns, term_name="n_away_years_abroad"),
             "",
-            coefficient_row(r"First pub.\ year", columns, term_name="first_year"),
+            coefficient_row("First publication year", columns, term_name="first_year"),
             "",
             r"\addlinespace[3pt]",
             "",
             latex_row(
                 [
                     "ASJC field shares",
-                    r"\multicolumn{9}{c}{27 major fields; Medicine as reference}",
+                    (rf"\multicolumn{{9}}{{c}}{{" f"{field_share_description}}}"),
                 ]
             ),
             "",
             r"\midrule",
             "",
-            observations_row(columns),
-            "",
-            adjusted_r_squared_row(columns),
-            *absolute_top_percentile_table_postamble(model_id=model_id, columns=columns),
         ]
+    )
+    if len(set(sample_sizes)) > 1:
+        lines.extend([observations_row(columns), ""])
+    if all(column.model.model_type in OLS_MODEL_TYPES for column in columns):
+        lines.append(adjusted_r_squared_row(columns))
+    lines.extend(
+        absolute_top_percentile_table_postamble(
+            model_id=model_id,
+            columns=columns,
+            outcome_aliases=outcome_aliases,
+        )
     )
     return "\n".join(lines)
 
@@ -654,27 +671,17 @@ def absolute_top_percentile_outcome_header(
 
 
 def absolute_top_percentile_table_postamble(
-    *, model_id: str, columns: list[LatexModelColumn]
+    *,
+    model_id: str,
+    columns: list[LatexModelColumn],
+    outcome_aliases: Mapping[str, str] | None = None,
 ) -> list[str]:
-    model_number = model_id[1:] if model_id.lower().startswith("m") else model_id
-    model_types = {column.model.model_type for column in columns}
-    nonlinear = bool(model_types.intersection({"frac", "ppml", "nb"}))
-    estimates = "average marginal effects (AMEs)" if nonlinear else "coefficients"
-    estimator_description = "; ".join(
-        f"{outcome_label(column.dependent_variable)} uses {column.model.model_type}"
-        for column in columns
-    )
-    rounding_note = (
-        " Fractional responses were rounded using nearest-integer half-up rounding for NB."
-        if "nb" in model_types
-        else " Fractional outcome values are retained without rounding."
-    )
-    ame_note = (
-        " Continuous AMEs are average derivatives and categorical AMEs are average discrete "
-        "changes relative to their reference category; HC3 robust covariance and delta-method "
-        "inference are used."
-        if nonlinear
-        else ""
+    notes = performance_table_note(
+        columns=columns,
+        outcomes=ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
+        performance_type="absolute",
+        model_id=model_id,
+        outcome_aliases=outcome_aliases,
     )
     return [
         "",
@@ -685,19 +692,7 @@ def absolute_top_percentile_table_postamble(
         r"\vspace{2mm}",
         r"\begin{minipage}{\textwidth}",
         r"\scriptsize",
-        (
-            r"\textit{Notes.} Outcomes are sums of publication-level fractional indicators "
-            r"(\texttt{ptop10\_frac}, \texttt{ptop5\_frac}, \texttt{ptop1\_frac}) for "
-            r"each professor; fractional contributions are preserved in the source outcome, and "
-            r"each professor-publication pair is counted once using the existing regression "
-            r"sample filters. Entries are "
-            f"{estimates} with estimator-appropriate standard errors. Estimators: "
-            f"{estimator_description}."
-            f"{rounding_note}{ame_note} "
-            r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. "
-            r"Full Prof.\ is the reference title; "
-            f"estimates are from Model~{model_number}."
-        ),
+        notes,
         r"\end{minipage}",
         "",
         r"\end{table}",
@@ -790,12 +785,15 @@ def table_preamble(
     model_id: str,
     outcomes: tuple[str, ...] = RESEARCH_PERFORMANCE_OUTCOMES,
     performance_type: str = "relative",
+    sample_sizes: tuple[int, ...] | None = None,
 ) -> list[str]:
     label_prefix = (
         "research_performance" if performance_type == "relative" else "absolute_performance"
     )
     caption_suffix = (
-        "relative citation impact" if performance_type == "relative" else "absolute performance"
+        "relative citation impact"
+        if performance_type == "relative"
+        else "absolute research performance"
     )
     estimate_format = "-2.2" if performance_type == "absolute" else "-1.2"
     standard_error_format = "2.2" if performance_type == "absolute" else "1.2"
@@ -808,10 +806,14 @@ def table_preamble(
             "S[table-format=1.2,table-space-text-post={***}]",
         )
     ]
+    sample_caption = latex_sample_size_caption(sample_sizes)
     return [
         r"\begin{table}[htbp]",
         r"\centering",
-        rf"\caption{{Association between academic inbreeding and {caption_suffix}}}",
+        (
+            rf"\caption{{Association between academic inbreeding and {caption_suffix}"
+            rf"{sample_caption}}}"
+        ),
         rf"\label{{tab:{label_prefix}_{model_id}}}",
         "",
         r"\renewcommand{\arraystretch}{1.15}",
@@ -827,6 +829,26 @@ def table_preamble(
         "",
         r"\toprule",
     ]
+
+
+def latex_sample_size_caption(sample_sizes: tuple[int, ...] | None) -> str:
+    """Format sample size information for a table caption.
+
+    :param sample_sizes: Sample size for each outcome or model column.
+    :return: LaTeX caption suffix, empty when no sizes are available.
+    """
+    if not sample_sizes:
+        return ""
+    unique_sizes = sorted(set(sample_sizes))
+    if len(unique_sizes) == 1:
+        return rf" (\(n={latex_integer(unique_sizes[0])}\))"
+    low, high = unique_sizes[0], unique_sizes[-1]
+    return rf" (\(n={latex_integer(low)}\)–\(n={latex_integer(high)}\))"
+
+
+def latex_integer(value: int) -> str:
+    """Format an integer with LaTeX-safe thousands separators."""
+    return f"{value:,}".replace(",", "{,}")
 
 
 def outcome_header(
@@ -996,7 +1018,7 @@ def latex_domain_label(value: str | None) -> str:
 def observations_row(columns: list[LatexModelColumn]) -> str:
     cells = ["Observations"]
     for column in columns:
-        cells.append(rf"\multicolumn{{3}}{{c}}{{{int(column.model.fit.nobs):,}}}")
+        cells.append(rf"\multicolumn{{3}}{{c}}{{{latex_integer(int(column.model.fit.nobs))}}}")
     return latex_row(cells)
 
 
@@ -1013,6 +1035,379 @@ def adjusted_r_squared_row(columns: list[LatexModelColumn]) -> str:
     return latex_row(cells)
 
 
+def outcome_description(
+    outcomes: tuple[str, ...],
+    *,
+    performance_type: str,
+    outcome_aliases: Mapping[str, str] | None = None,
+) -> str:
+    """Describe the dependent variables actually represented in a table.
+
+    :param outcomes: Outcome keys included in the table.
+    :param performance_type: Either relative or absolute performance.
+    :return: Publication-ready dependent-variable description.
+    """
+    labels = {outcome: outcome_label(outcome, outcome_aliases) for outcome in outcomes}
+    if performance_type == "mixed":
+        relative = tuple(
+            outcome
+            for outcome in outcomes
+            if outcome == HAZEN_PERCENTILE or outcome in PERCENTAGE_POINT_OUTCOMES
+        )
+        absolute = tuple(outcome for outcome in outcomes if outcome not in relative)
+        parts = []
+        if relative:
+            parts.append(
+                outcome_description(
+                    relative,
+                    performance_type="relative",
+                    outcome_aliases=outcome_aliases,
+                )
+            )
+        if absolute:
+            parts.append(
+                outcome_description(
+                    absolute,
+                    performance_type="absolute",
+                    outcome_aliases=outcome_aliases,
+                )
+            )
+        return " and ".join(parts)
+    descriptions = []
+    if performance_type == "relative":
+        if HAZEN_PERCENTILE in outcomes:
+            descriptions.append("the mean weighted percentile rank (mwPR)")
+        percentile_outcomes = [
+            outcome for outcome in outcomes if outcome in PERCENTAGE_POINT_OUTCOMES
+        ]
+        if percentile_outcomes:
+            names = join_labels(tuple(labels[outcome] for outcome in percentile_outcomes))
+            descriptions.append(
+                f"the proportions of publications in the respective citation-impact percentiles "
+                f"({names})"
+            )
+    else:
+        if N_PUBLIC in outcomes:
+            descriptions.append("the number of publications (Publications)")
+        count_outcomes = [
+            outcome for outcome in outcomes if outcome in ABSOLUTE_TOP_PERCENTILE_OUTCOMES
+        ]
+        if count_outcomes:
+            names = join_labels(tuple(labels[outcome] for outcome in count_outcomes))
+            descriptions.append(
+                f"fractionally counted numbers of highly cited publications ({names})"
+            )
+    return " and ".join(descriptions)
+
+
+def estimator_description(model_type: str) -> str:
+    """Expand an estimator identifier into its publication-ready name."""
+    descriptions = {
+        "frac": "fractional logit",
+        "huber": "Huber robust regression",
+        "nb": "negative binomial regression (NB)",
+        "ols": "ordinary least squares (OLS)",
+        "olshc3": "ordinary least squares (OLS)",
+        "ppml": "Poisson pseudo-maximum likelihood (PPML)",
+        "pr": "Poisson regression",
+        "zinb": "zero-inflated negative binomial regression",
+    }
+    return descriptions.get(model_type, model_type)
+
+
+def table_estimator_note(columns: list[LatexModelColumn], *, has_p_column: bool = True) -> str:
+    """Describe fitted estimators and whether tables show coefficients or AMEs.
+
+    :param columns: Fitted outcome/model columns in the table.
+    :param has_p_column: Whether the table labels a p-value column as ``P``.
+    :return: Estimator and reported-effect description.
+    """
+    model_types = tuple(dict.fromkeys(column.model.model_type for column in columns))
+    estimators = join_labels(tuple(estimator_description(value) for value in model_types))
+    has_ames = any(value in {"frac", "ppml", "nb"} for value in model_types)
+    if len(model_types) == 1 and has_ames:
+        reported = f"Reported are average marginal effects (AMEs) from {estimators}. "
+    elif len(model_types) == 1:
+        reported = f"Reported are regression coefficients (Coef.) from {estimators}. "
+    elif has_ames:
+        reported = (
+            "Reported are regression coefficients (Coef.) or average marginal effects (AMEs); "
+            f"estimators are {estimators}. "
+        )
+    else:
+        reported = f"Reported are regression coefficients (Coef.) from {estimators}. "
+    abbreviations = ""
+    if has_ames:
+        abbreviations += "AME denotes average marginal effect; "
+    if has_p_column:
+        abbreviations += "P denotes p-value. "
+    return reported + abbreviations
+
+
+def table_inference_note(columns: list[LatexModelColumn]) -> str:
+    """Describe the covariance estimator and tests represented in a table.
+
+    :param columns: Fitted outcome/model columns in the table.
+    :return: Estimator-specific standard-error and p-value explanation.
+    """
+    covariance_by_type: dict[str, set[str]] = {}
+    for column in columns:
+        covariance = str(
+            getattr(
+                column.model.fit.model,
+                "_acib_covariance_estimator",
+                getattr(column.model.fit, "cov_type", "nonrobust"),
+            )
+        )
+        covariance_by_type.setdefault(column.model.model_type, set()).add(covariance)
+    unique_covariances = set().union(*covariance_by_type.values()) if covariance_by_type else set()
+    if unique_covariances == {"HC3"}:
+        standard_errors = "HC3 heteroskedasticity-robust standard errors (Robust SE)"
+    elif unique_covariances == {"nonrobust"}:
+        standard_errors = "model-based standard errors (SE)"
+    else:
+        covariance_details = []
+        for model_type, estimators in covariance_by_type.items():
+            estimator_name = estimator_description(model_type)
+            labels = join_labels(tuple(sorted(estimators)))
+            covariance_details.append(f"{estimator_name} uses {labels} covariance")
+        standard_errors = "standard errors use " + "; ".join(covariance_details)
+
+    model_types = {column.model.model_type for column in columns}
+    t_types = model_types.intersection(OLS_MODEL_TYPES)
+    z_types = model_types - OLS_MODEL_TYPES
+    if t_types and z_types:
+        tests = "OLS p-values are based on t-tests; other estimator p-values use z-tests"
+    elif t_types:
+        tests = "p-values are based on t-tests"
+    else:
+        tests = "p-values are based on z-tests"
+    return f"{standard_errors}; {tests}. "
+
+
+def table_units_note(columns: list[LatexModelColumn], *, performance_type: str) -> str:
+    """Describe units for the outcomes and effects shown in a table.
+
+    :param columns: Fitted outcome/model columns in table order.
+    :param performance_type: Relative or absolute performance table.
+    :return: Outcome-specific effect-unit explanation.
+    """
+    model_by_outcome = {column.dependent_variable: column.model.model_type for column in columns}
+    if performance_type == "mixed":
+        relative_outcomes = {
+            column.dependent_variable
+            for column in columns
+            if column.dependent_variable == HAZEN_PERCENTILE
+            or column.dependent_variable in PERCENTAGE_POINT_OUTCOMES
+        }
+        relative = tuple(
+            column for column in columns if column.dependent_variable in relative_outcomes
+        )
+        absolute = [
+            column for column in columns if column.dependent_variable not in relative_outcomes
+        ]
+        notes = []
+        if relative:
+            notes.append(table_units_note(list(relative), performance_type="relative").strip())
+        if absolute:
+            notes.append(table_units_note(absolute, performance_type="absolute").strip())
+        return " ".join(notes) + (" " if notes else "")
+    if performance_type == "relative":
+        units = []
+        if HAZEN_PERCENTILE in model_by_outcome:
+            units.append("mwPR effects are expressed in percentile points")
+        if any(outcome in PERCENTAGE_POINT_OUTCOMES for outcome in model_by_outcome):
+            units.append(
+                "PP denotes proportions of publications in the respective citation-impact "
+                "percentiles; their effects are expressed in percentage points"
+            )
+        return "; ".join(units) + (". " if units else "")
+
+    units = []
+    if N_PUBLIC in model_by_outcome:
+        model_type = model_by_outcome[N_PUBLIC]
+        if model_type in {"nb", "ppml"}:
+            units.append("Publications AMEs are expressed in publication-count units")
+        elif model_type == "pr":
+            units.append("Publications coefficients are on the log expected-count scale")
+        elif model_type == "zinb":
+            units.append(
+                "zero-inflated negative binomial count coefficients are on the log expected-count "
+                "scale and inflation coefficients are on the logit scale"
+            )
+        else:
+            units.append("Publications effects are expressed in publication counts")
+    count_outcomes = [
+        outcome for outcome in model_by_outcome if outcome in ABSOLUTE_TOP_PERCENTILE_OUTCOMES
+    ]
+    if count_outcomes:
+        units_by_description: dict[str, list[str]] = {}
+        for outcome in count_outcomes:
+            model_type = model_by_outcome[outcome]
+            if model_type == "nb":
+                description = "AMEs in publication counts after nearest-integer half-up rounding"
+            elif model_type in {"ppml", "ols", "olshc3", "huber"}:
+                quantity = "AMEs" if model_type == "ppml" else "coefficients"
+                description = f"{quantity} in fractional publication-count units"
+            elif model_type == "pr":
+                description = "coefficients on the log expected-count scale"
+            elif model_type == "zinb":
+                description = "count-component coefficients on the log expected-count scale"
+            else:
+                description = "effects in the configured outcome units"
+            units_by_description.setdefault(description, []).append(outcome_label(outcome))
+        units.extend(
+            f"{join_labels(tuple(labels))} {description}"
+            for description, labels in units_by_description.items()
+        )
+    return "; ".join(units) + (". " if units else "")
+
+
+def table_context_note(columns: list[LatexModelColumn]) -> str:
+    """Add only reference-category and research-field context present in a table.
+
+    :param columns: Fitted outcome/model columns in the table.
+    :return: Applicable academic-title and research-field notes.
+    """
+    notes = []
+    if any("title" in column.model.formula for column in columns):
+        notes.append(
+            r"Full Prof. (Full Professor) is the reference category for academic title; "
+            r"all academic-title "
+            r"abbreviations are defined in Table~\ref{tab:prof_titles}."
+        )
+    share_types = {column.model.share_control_type for column in columns}
+    if "detailed_asjc_shares" in share_types:
+        notes.append(
+            "Research-field composition is represented by fractional publication "
+            "shares across 27 major fields of the All Science Journal Classification (ASJC), "
+            "with Medicine as the reference field because it has the largest overall publication "
+            "share."
+        )
+    elif "broad_asjc_shares" in share_types:
+        notes.append(
+            "Where included, research-field composition is represented by fractional publication "
+            "shares across broad domains of the All Science Journal Classification (ASJC)."
+        )
+    return " ".join(notes) + (" " if notes else "")
+
+
+def performance_table_note(
+    *,
+    columns: list[LatexModelColumn],
+    outcomes: tuple[str, ...],
+    performance_type: str,
+    model_id: str,
+    outcome_aliases: Mapping[str, str] | None = None,
+    has_p_column: bool = True,
+) -> str:
+    """Build an estimator- and outcome-specific note for a performance table.
+
+    :param columns: Fitted outcome/model columns represented in the table.
+    :param outcomes: Outcome keys included in the table.
+    :param performance_type: Relative or absolute performance.
+    :param model_id: Single model specification shown in the table.
+    :param outcome_aliases: Optional labels for dependent variables.
+    :param has_p_column: Whether a p-value column is headed ``P``.
+    :return: Complete table-note paragraph.
+    """
+    model_types = {column.model.model_type for column in columns}
+    if is_nb_publications_with_ols_percentile_counts(columns, performance_type):
+        return negative_binomial_publication_note(columns)
+    note = table_estimator_note(columns, has_p_column=has_p_column)
+    dependent_variable_description = outcome_description(
+        outcomes,
+        performance_type=performance_type,
+        outcome_aliases=outcome_aliases,
+    )
+    note += f"The dependent variables are {dependent_variable_description}. "
+    if len(model_types) > 1 and performance_type != "mixed":
+        mapping = []
+        for column in columns:
+            family = estimator_description(column.model.model_type)
+            effect = "AMEs" if column.model.model_type in {"frac", "ppml", "nb"} else "coefficients"
+            if len(outcomes) == 1:
+                mapping.append(f"{column.model.model_id.upper()} uses {family} ({effect})")
+            else:
+                label = outcome_label(column.dependent_variable, outcome_aliases)
+                mapping.append(f"{label} uses {family} ({effect})")
+        note += "Estimator by outcome: " + "; ".join(dict.fromkeys(mapping)) + ". "
+    note += table_units_note(columns, performance_type=performance_type)
+    note += table_inference_note(columns)
+    if len(model_types.intersection({"frac", "ppml", "nb"})):
+        note += (
+            "AMEs are average derivatives for continuous predictors and average discrete "
+            "differences for categorical predictors. "
+        )
+    note += table_context_note(columns)
+    if model_id == "m10" and performance_type == "mixed":
+        note += (
+            "All models include the explanatory variables of the full specification except "
+            "international mobility. "
+        )
+    note += r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. "
+    note += (
+        r"Definitions and calculations of the analytical variables are provided in "
+        r"Table~\ref{tab:analytical_variables}."
+    )
+    return r"\textit{Notes.} " + note
+
+
+def is_nb_publications_with_ols_percentile_counts(
+    columns: list[LatexModelColumn],
+    performance_type: str,
+) -> bool:
+    """Identify the absolute-performance table with NB publications and OLS counts.
+
+    :param columns: Fitted models represented in the table.
+    :param performance_type: Performance-table outcome family.
+    :return: Whether the table has the requested mixed NB/OLS structure.
+    """
+    models = {column.dependent_variable: column.model.model_type for column in columns}
+    return (
+        performance_type == "absolute"
+        and models.get(N_PUBLIC) == "nb"
+        and all(
+            models.get(outcome) in OLS_MODEL_TYPES for outcome in ABSOLUTE_TOP_PERCENTILE_OUTCOMES
+        )
+        and all(
+            str(getattr(getattr(column.model, "fit", None), "cov_type", "")).upper() == "HC3"
+            for column in columns
+        )
+    )
+
+
+def negative_binomial_publication_note(columns: list[LatexModelColumn]) -> str:
+    """Build the specific note for NB publication counts and OLS percentile counts.
+
+    :param columns: Fitted models represented in the table.
+    :return: Estimator- and outcome-specific note.
+    """
+    note = (
+        r"\textit{Notes.} "
+        r"Reported are average marginal effects (AMEs) from negative binomial regression (NB) "
+        r"for Publications and ordinary least squares (OLS) regression coefficients (Coef.) "
+        r"for P(top 10\%), P(top 5\%), and P(top 1\%), with HC3 "
+        r"heteroskedasticity-robust standard errors (Robust SE) and $p$-values ($P$). "
+        r"The dependent variables are the number of publications per professor (Publications) "
+        r"and the "
+        r"fractionally counted numbers of publications in the top 10\%, top 5\%, and top 1\% "
+        r"of citation impact, respectively. AMEs for Publications represent changes in the "
+        r"expected publication count, whereas OLS coefficients for the P indicators represent "
+        r"changes in fractionally counted numbers of highly cited publications. AMEs represent "
+        r"average derivatives for continuous predictors and average discrete differences for "
+        r"categorical predictors. OLS $p$-values are based on $t$-tests, whereas negative "
+        r"binomial AME $p$-values are based on $z$-tests. "
+    )
+    note += table_context_note(columns)
+    note += r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. "
+    note += (
+        r"Definitions and calculations of the analytical variables are provided in "
+        r"Table~\ref{tab:analytical_variables}."
+    )
+    return note
+
+
 def table_postamble(
     *,
     model_id: str,
@@ -1020,7 +1415,31 @@ def table_postamble(
     performance_type: str = "relative",
     model_types: dict[str, str] | None = None,
     outcome_aliases: Mapping[str, str] | None = None,
+    columns: list[LatexModelColumn] | None = None,
 ) -> list[str]:
+    if columns is not None:
+        notes = performance_table_note(
+            columns=columns,
+            outcomes=outcomes,
+            performance_type=performance_type,
+            model_id=model_id,
+            outcome_aliases=outcome_aliases,
+        )
+        return [
+            "",
+            r"\bottomrule",
+            r"\end{tabular}%",
+            "}",
+            "",
+            r"\vspace{2mm}",
+            "",
+            r"\begin{minipage}{\textwidth}",
+            r"\footnotesize",
+            notes,
+            r"\end{minipage}",
+            "",
+            r"\end{table}",
+        ]
     model_number = model_id[1:] if model_id.lower().startswith("m") else model_id
     if performance_type == "relative":
         outcome_note = relative_performance_note(
@@ -1073,8 +1492,9 @@ def table_postamble(
             r"\textit{Notes.} Reported are average marginal effects (AMEs) or coefficients "
             r"(Coef.), robust standard errors (Robust SE), and $p$-values ($P$). The dependent "
             r"variables are the total number of publications (Publications) and the fractionally "
-            r"counted numbers of publications in the top 10\%, top 5\%, and top 1\% (P(top "
-            r"10\%), P(top 5\%), and P(top 1\%), respectively). Total publication output is "
+            r"counted numbers of publications in the top 10\%, top 5\%, and top 1\% "
+            r"(P(top 10\%), P(top 5\%), and P(top 1\%), respectively). Total publication "
+            r"output is "
             r"estimated using negative binomial regression, with AMEs expressed in publication-"
             r"count units. AMEs represent average changes in predicted publication counts, "
             r"calculated as discrete differences for categorical variables and derivatives for "
@@ -1397,6 +1817,7 @@ def model_comparison_preamble(
         r"\providecommand{\coef}[3]{#1 & .#2\textsuperscript{#3}}",
         r"\providecommand{\coefn}[2]{#1 & .#2}",
         r"\providecommand{\se}[2]{(#1 & .#2)}",
+        r"\providecommand{\na}{\multicolumn{2}{c}{--}}",
         r"\providecommand{\txt}[1]{\multicolumn{2}{c}{#1}}",
         r"\providecommand{\fit}[1]{\multicolumn{2}{c}{\scriptsize #1}}",
         "",
@@ -1479,7 +1900,7 @@ def append_comparison_rows(
 
 def format_comparison_estimate(coefficient: LatexCoefficient | None) -> str:
     if coefficient is None:
-        return r"\multicolumn{2}{c}{---}"
+        return r"\na"
     stars = significance_code(coefficient.p_value)
     if stars == ".":
         stars = ""
@@ -1493,7 +1914,7 @@ def format_comparison_estimate(coefficient: LatexCoefficient | None) -> str:
 
 def format_comparison_std_error(coefficient: LatexCoefficient | None) -> str:
     if coefficient is None:
-        return r"\multicolumn{2}{c}{---}"
+        return r"\na"
     whole, decimal = split_decimal(coefficient.std_error)
     return rf"\se{{{whole}}}{{{decimal}}}"
 
@@ -1501,7 +1922,7 @@ def format_comparison_std_error(coefficient: LatexCoefficient | None) -> str:
 def model_comparison_inclusion_row(label: str, columns: list[LatexModelColumn]) -> str:
     cells = [label]
     for column in columns:
-        value = "Yes" if column.model.share_control_type == "detailed_asjc_shares" else "No"
+        value = "Yes" if column.model.share_control_type else "No"
         cells.append(rf"\txt{{{value}}}")
     return model_comparison_row(cells)
 
@@ -1529,58 +1950,84 @@ def model_comparison_bic_row(columns: list[LatexModelColumn]) -> str:
     return model_comparison_row(cells)
 
 
+def model_comparison_observations_row(columns: list[LatexModelColumn]) -> str:
+    """Render per-specification sample sizes when they differ.
+
+    :param columns: Fitted model columns ordered as they appear in the table.
+    :return: LaTeX observations row.
+    """
+    cells = ["Observations"]
+    cells.extend(
+        rf"\multicolumn{{2}}{{c}}{{{latex_integer(int(column.model.fit.nobs))}}}"
+        for column in columns
+    )
+    return model_comparison_row(cells)
+
+
+def model_comparison_estimator_row(columns: list[LatexModelColumn]) -> str:
+    """Render the estimator used by each specification.
+
+    :param columns: Fitted model columns ordered as they appear in the table.
+    :return: LaTeX estimator row.
+    """
+    cells = ["Estimator"]
+    cells.extend(
+        rf"\multicolumn{{2}}{{c}}{{{estimator_description(column.model.model_type)}}}"
+        for column in columns
+    )
+    return model_comparison_row(cells)
+
+
 def model_comparison_postamble(
     *,
     dependent_variable: str,
     columns: list[LatexModelColumn],
     outcome_aliases: Mapping[str, str] | None = None,
 ) -> list[str]:
-    sample_size = f"{int(columns[0].model.fit.nobs):,}".replace(",", "{,}")
-    model_types = {column.model.model_type for column in columns}
-    nonlinear = bool(model_types.intersection({"frac", "ppml", "nb"}))
-    covariance_types = {
-        str(getattr(column.model.fit, "cov_type", "nonrobust")) for column in columns
-    }
-    if dependent_variable == N_PUBLIC and model_types <= {"nb"}:
-        label = outcome_label(dependent_variable, outcome_aliases)
-        outcome_note = f"{label} average marginal effects are in publication-count units."
-    elif dependent_variable in ABSOLUTE_TOP_PERCENTILE_OUTCOMES:
-        if "nb" in model_types:
-            outcome_note = (
-                r"Fractional top-x\% publication counts are rounded to nearest integer using "
-                r"half-up rounding for negative-binomial estimation."
-            )
-        else:
-            outcome_note = (
-                r"Outcomes are unrounded sums of publication-level fractional top-x\% "
-                r"indicators for each professor."
-            )
-    elif dependent_variable == HAZEN_PERCENTILE:
-        outcome_note = "Coefficients and standard errors are reported in percentile points."
-    else:
-        outcome_note = "Coefficients and standard errors are reported in percentage points."
-    if nonlinear:
-        outcome_note += (
-            " Reported AMEs for continuous predictors are average derivatives; categorical "
-            "predictor AMEs are "
-            "average discrete changes relative to the reference category."
-        )
-    if "frac" in model_types:
-        outcome_note += " Fractional-logit effects are restored to the original outcome scale."
-    if "nb" in model_types and dependent_variable in ABSOLUTE_TOP_PERCENTILE_OUTCOMES:
-        outcome_note += (
-            " Fractional publication counts were rounded to nearest integer using half-up "
-            "rounding for negative-binomial estimation."
-        )
-    if len(covariance_types) == 1 and "nonrobust" in covariance_types:
-        standard_error_note = "model-based standard errors in parentheses. "
-    elif covariance_types == {"HC3"}:
-        standard_error_note = "HC3 heteroskedasticity-robust standard errors in parentheses. "
-    else:
-        standard_error_note = "heteroskedasticity-robust standard errors in parentheses. "
-    inference_note = model_inference_note(
-        {column.model.model_id: column.model.model_type for column in columns}
+    performance_type = (
+        "relative"
+        if dependent_variable == HAZEN_PERCENTILE or dependent_variable in PERCENTAGE_POINT_OUTCOMES
+        else "absolute"
     )
+    requested_ols_note = dependent_variable in {
+        HAZEN_PERCENTILE,
+        *PERCENTAGE_POINT_OUTCOMES,
+        *ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
+    } and is_hc3_ols_comparison(columns)
+    requested_nb_note = dependent_variable == N_PUBLIC and is_nb_comparison(columns)
+    if requested_ols_note:
+        notes = model_comparison_relative_ols_note(
+            columns=columns,
+            dependent_variable=dependent_variable,
+            outcome_aliases=outcome_aliases,
+        )
+    elif requested_nb_note:
+        notes = model_comparison_n_public_nb_note(columns)
+    else:
+        notes = performance_table_note(
+            columns=columns,
+            outcomes=(dependent_variable,),
+            performance_type=performance_type,
+            model_id="comparison",
+            outcome_aliases=outcome_aliases,
+            has_p_column=False,
+        )
+    if not requested_ols_note and not requested_nb_note:
+        spec_labels = [column.model.model_id.upper() for column in columns]
+        spec_description = (
+            f"{spec_labels[0]}–{spec_labels[-1]}"
+            if len(spec_labels) > 1 and spec_labels == [f"M{index}" for index in range(1, 11)]
+            else join_labels(tuple(spec_labels))
+        )
+        notes += (
+            f"{spec_description} denote different regression specifications. "
+            "Dashes indicate terms omitted from a specification. "
+        )
+        notes += (
+            "AIC denotes the Akaike information criterion; BIC denotes the Bayesian information "
+            "criterion. Lower AIC and BIC indicate a preferable balance between model fit and "
+            "complexity for comparable models fitted to the same outcome and sample. "
+        )
     return [
         r"\bottomrule",
         r"\end{tabular}%",
@@ -1588,21 +2035,142 @@ def model_comparison_postamble(
         r"\vspace{2mm}",
         r"\begin{minipage}{\textwidth}",
         r"\scriptsize",
-        (
-            rf"\textit{{Notes.}} $N={sample_size}$ in all models. Entries are "
-            f"{'average marginal effects (AMEs)' if nonlinear else 'coefficients'} "
-            f"with {standard_error_note}"
-            rf"{outcome_note} Full Prof.\ is the reference category for academic title. "
-            f"{inference_note} "
-            r"ASJC field composition is represented by fractional publication shares across "
-            r"27 ASJC major fields, with Medicine as the reference field. Dashes indicate "
-            r"that a term was not included in the respective model specification. "
-            r"AIC = Akaike Information Criterion; BIC = Bayesian Information Criterion. "
-            r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$."
-        ),
+        (notes),
         r"\end{minipage}",
         r"\end{table}",
     ]
+
+
+def is_hc3_ols_comparison(columns: list[LatexModelColumn]) -> bool:
+    """Return whether every comparison model is OLS with HC3 covariance.
+
+    :param columns: Fitted models displayed in the comparison table.
+    :return: Whether the requested OLS/HC3 note accurately describes the models.
+    """
+    return bool(columns) and all(
+        column.model.model_type in OLS_MODEL_TYPES
+        and str(getattr(column.model.fit, "cov_type", "")).upper() == "HC3"
+        for column in columns
+    )
+
+
+def is_nb_comparison(columns: list[LatexModelColumn]) -> bool:
+    """Return whether every comparison model uses negative binomial regression.
+
+    :param columns: Fitted models displayed in the comparison table.
+    :return: Whether all models use the NB estimator.
+    """
+    return bool(columns) and all(column.model.model_type == "nb" for column in columns)
+
+
+def model_comparison_n_public_nb_note(columns: list[LatexModelColumn]) -> str:
+    """Render notes for total-publication negative-binomial comparisons.
+
+    :param columns: Fitted models displayed in the comparison table.
+    :return: LaTeX note describing NB average marginal effects and inference.
+    """
+    sample_sizes = {int(column.model.fit.nobs) for column in columns}
+    if len(sample_sizes) == 1:
+        sample_note = f"$N={latex_integer(next(iter(sample_sizes)))}$ in all models. "
+    else:
+        sample_note = "Sample sizes differ across models; see the Observations row. "
+    spec_labels = [column.model.model_id.upper() for column in columns]
+    spec_description = (
+        f"{spec_labels[0]}--{spec_labels[-1]}"
+        if len(spec_labels) > 1 and spec_labels == [f"M{index}" for index in range(1, 11)]
+        else join_labels(tuple(spec_labels))
+    )
+    return (
+        r"\textit{Notes.} "
+        + sample_note
+        + r"Reported are average marginal effects (AMEs) from negative binomial regression "
+        r"(NB). The dependent variable is the number of publications per professor "
+        r"(Publications). AMEs represent changes in the expected number of publications. "
+        r"HC3 heteroskedasticity-robust standard errors (Robust SE) are calculated using the "
+        r"delta method; p-values are based on $z$-tests. Full Professor (Full Prof.) is the "
+        r"reference category for academic title; academic-title abbreviations are defined in "
+        r"Table~1. Research-field composition is represented by fractional publication shares "
+        r"across 27 major fields of the All Science Journal Classification (ASJC), with "
+        r"Medicine as the reference field because it has the largest overall publication share. "
+        r"Significance levels: $^{*}p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$. Definitions and "
+        rf"calculations of the analytical variables are provided in Table~3. {spec_description} "
+        r"denote different regression specifications. Dashes indicate terms omitted from a "
+        r"specification. AIC denotes the Akaike information criterion; BIC denotes the "
+        r"Bayesian information criterion. Lower AIC and BIC indicate a preferable balance "
+        r"between model fit and complexity for comparable models fitted to the same outcome "
+        r"and sample."
+    )
+
+
+def model_comparison_relative_ols_note(
+    *,
+    columns: list[LatexModelColumn],
+    dependent_variable: str,
+    outcome_aliases: Mapping[str, str] | None,
+) -> str:
+    """Render OLS model-comparison notes for publication-impact outcomes.
+
+    :param columns: Fitted models displayed in the comparison table.
+    :param dependent_variable: Outcome represented by the table.
+    :param outcome_aliases: Optional display labels for outcomes.
+    :return: LaTeX note with the sample size and model interpretation.
+    """
+    sample_sizes = {int(column.model.fit.nobs) for column in columns}
+    if len(sample_sizes) == 1:
+        sample_note = f"$N={latex_integer(next(iter(sample_sizes)))}$ in all models. "
+    else:
+        sample_note = "Sample sizes differ across models; see the Observations row. "
+    if dependent_variable == HAZEN_PERCENTILE:
+        dependent_variable_note = (
+            r"The dependent variable is the mean weighted percentile rank (mwPR). "
+            r"mwPR effects are expressed in percentile points. "
+        )
+    elif dependent_variable in ABSOLUTE_TOP_PERCENTILE_OUTCOMES:
+        label = outcome_label(dependent_variable, outcome_aliases)
+        percentile = {
+            ABSOLUTE_P_TOP_1: "1",
+            ABSOLUTE_P_TOP_5: "5",
+            ABSOLUTE_P_TOP_10: "10",
+        }[dependent_variable]
+        dependent_variable_note = (
+            rf"The dependent variable, {label}, is the sum of publication-level fractional "
+            rf"contributions to the top {percentile}\% most cited publications in their "
+            r"respective fields and publication years, calculated for each professor. "
+            rf"{label} coefficients are expressed in fractional publication-count units. "
+        )
+    else:
+        label = outcome_label(dependent_variable, outcome_aliases)
+        dependent_variable_note = (
+            rf"The dependent variable is the proportion of publications in the respective "
+            rf"citation-impact percentile ({label}). PP denotes proportions of publications "
+            r"in the respective citation-impact percentiles; their effects are expressed in "
+            r"percentage points. "
+        )
+    spec_labels = [column.model.model_id.upper() for column in columns]
+    spec_description = (
+        f"{spec_labels[0]}--{spec_labels[-1]}"
+        if len(spec_labels) > 1 and spec_labels == [f"M{index}" for index in range(1, 11)]
+        else join_labels(tuple(spec_labels))
+    )
+    return (
+        r"\textit{Notes.} "
+        + sample_note
+        + r"Reported are regression coefficients (Coef.) from ordinary least squares (OLS). "
+        + dependent_variable_note
+        + r"HC3 heteroskedasticity-robust standard errors (Robust SE); p-values are based on "
+        r"t-tests. Full "
+        r"Professor (Full Prof.) is the reference category for academic title; academic-title "
+        r"abbreviations are defined in Table~1. Research-field composition is represented by "
+        r"fractional publication shares across 27 major fields of the All Science Journal "
+        r"Classification (ASJC), with Medicine as the reference field because it has the "
+        r"largest overall publication share. Significance levels: $^{*}p<0.05$, "
+        r"$^{**}p<0.01$, $^{***}p<0.001$. Definitions and calculations of the analytical "
+        rf"variables are provided in Table~3. {spec_description} denote different regression "
+        r"specifications. Dashes indicate terms omitted from a specification. "
+        + r"AIC denotes the Akaike information criterion; BIC denotes the Bayesian information "
+        r"criterion. Lower AIC and BIC indicate a preferable balance between model fit and "
+        r"complexity for comparable models fitted to the same outcome and sample."
+    )
 
 
 def model_comparison_latex_table(
@@ -1625,7 +2193,13 @@ def model_comparison_latex_table(
         model_ids=model_ids,
         outcome_aliases=outcome_aliases,
     )
-    lines.append(model_comparison_effect_header(columns))
+    if dependent_variable not in {
+        HAZEN_PERCENTILE,
+        *PERCENTAGE_POINT_OUTCOMES,
+        *ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
+        N_PUBLIC,
+    }:
+        lines.append(model_comparison_effect_header(columns))
     lines.append(r"\midrule")
     append_comparison_coefficient_rows(
         lines,
@@ -1635,20 +2209,20 @@ def model_comparison_latex_table(
     )
     append_comparison_coefficient_rows(
         lines,
-        r"Acad.\ age",
+        "Academic age",
         columns,
         term_name="academic_age",
     )
     append_comparison_coefficient_rows(
         lines,
-        r"Acad.\ age$^2$",
+        r"Academic age$^2$",
         columns,
         term_name="I(academic_age ** 2)",
     )
     lines.append(r"\addlinespace[4pt]")
     lines.append(
         rf"\multicolumn{{{len(columns) * 2 + 1}}}{{@{{}}l}}"
-        r"{\textit{Academic title (ref.: Full Prof.)}} \[1pt]"
+        r"{\textit{Academic title (ref.: Full Prof.)}} \\[1pt]"
     )
     for title in title_rows_for_columns(columns):
         append_comparison_title_rows(lines, title, columns)
@@ -1667,25 +2241,25 @@ def model_comparison_latex_table(
     )
     append_comparison_coefficient_rows(
         lines,
-        r"Int.\ mobility",
+        "International mobility",
         columns,
         term_name="n_away_years_abroad",
     )
     append_comparison_coefficient_rows(
         lines,
-        r"Co-affil.\ pub.\ share",
+        "Co-affiliation publication share",
         columns,
         term_name="coaffiliation_publication_share",
     )
     append_comparison_coefficient_rows(
         lines,
-        "Mean coauthors",
+        "Mean coauthors per publication",
         columns,
         term_name="mean_coauthors_per_publication",
     )
     append_comparison_coefficient_rows(
         lines,
-        r"First pub.\ year",
+        "First publication year",
         columns,
         term_name="first_year",
     )
@@ -1696,6 +2270,8 @@ def model_comparison_latex_table(
         lines.append(model_comparison_adjusted_r_squared_row(columns))
     lines.append(model_comparison_aic_row(columns))
     lines.append(model_comparison_bic_row(columns))
+    if len({int(column.model.fit.nobs) for column in columns}) > 1:
+        lines.append(model_comparison_observations_row(columns))
     lines.extend(
         model_comparison_postamble(
             dependent_variable=dependent_variable,

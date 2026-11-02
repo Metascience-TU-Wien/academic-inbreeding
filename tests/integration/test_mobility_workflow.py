@@ -106,8 +106,12 @@ def test_mobility_runs_independently_and_writes_only_configured_artifacts(
 
     assert all(path.is_file() for path in outputs.all_paths())
     assert not (output_dir / "professor_author_profiles.csv").exists()
+    assert not (output_dir / "author_affiliations_unique.csv").exists()
     summary = pd.read_csv(outputs.author_inbreeding_proxy)
     assert summary.loc[0, "sc_id"] == 1
     assert summary.loc[0, "title"] == "Full Prof."
     articles_output = pd.read_csv(outputs.author_articles)
     assert articles_output["eid"].tolist() == ["paper-1", "paper-2"]
+    assert articles_output["author_ids"].tolist() == [1001, 1001]
+    assert articles_output["author_afids"].map(str).tolist() == ["60025988", "60025988"]
+    assert articles_output["unmapped_id"].map(str).tolist() == ["60025988", "60025988"]

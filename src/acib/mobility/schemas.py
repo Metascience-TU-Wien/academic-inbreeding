@@ -31,6 +31,7 @@ from acib.mobility.constants import (
     CITY,
     COUNTRY,
     IS_INBREEDING_PROXY,
+    UNMAPPED_AFFILIATION_ID,
 )
 from acib.name_disambiguation.constants import AUTHOR_IDS
 
@@ -102,18 +103,6 @@ class MobilityAuthorAffiliationsOutputSchema(pa.DataFrameModel):
         coerce = False
 
 
-class MobilityUniqueAffiliationsOutputSchema(pa.DataFrameModel):
-    """Validate the unique top-level affiliation export."""
-
-    affiliation_id: Series[int] = pa.Field(alias=AFFILIATION_ID, nullable=False)
-
-    class Config:
-        """Retain additional institution metadata without coercion."""
-
-        strict = False
-        coerce = False
-
-
 class MobilityAuthorInbreedingOutputSchema(pa.DataFrameModel):
     """Validate author-level inbreeding and mobility summary rows."""
 
@@ -138,9 +127,12 @@ class MobilityAuthorInbreedingOutputSchema(pa.DataFrameModel):
 
 
 class MobilityAuthorArticlesOutputSchema(pa.DataFrameModel):
-    """Validate unique article rows written by mobility analysis."""
+    """Validate author-article rows with grouped affiliation identifiers."""
 
     eid: Series[Any] = pa.Field(alias=EID, nullable=False)
+    author_ids: Series[int] = pa.Field(alias=AUTHOR_IDS, nullable=False)
+    author_afids: Series[str] = pa.Field(alias=ARTICLE_AFFILIATION_ID, nullable=False)
+    unmapped_id: Series[str] = pa.Field(alias=UNMAPPED_AFFILIATION_ID, nullable=False)
 
     class Config:
         """Retain article metadata without coercion."""

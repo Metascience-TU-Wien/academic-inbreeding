@@ -7,7 +7,6 @@ from pathlib import Path
 
 from acib.mobility.constants import (
     AUTHOR_AFFILIATIONS_FILENAME,
-    AUTHOR_AFFILIATIONS_UNIQUE_FILENAME,
     AUTHOR_ARTICLES_FILENAME,
     AUTHOR_INBREEDING_PROXY_FILENAME,
     EARLY_AFFILIATION_METHODS,
@@ -29,11 +28,6 @@ class MobilityOutputs:
         return self.directory / AUTHOR_AFFILIATIONS_FILENAME
 
     @property
-    def author_affiliations_unique(self) -> Path:
-        """Return the unique-author-affiliations artifact path."""
-        return self.directory / AUTHOR_AFFILIATIONS_UNIQUE_FILENAME
-
-    @property
     def author_inbreeding_proxy(self) -> Path:
         """Return the author-inbreeding-proxy artifact path."""
         return self.directory / AUTHOR_INBREEDING_PROXY_FILENAME
@@ -50,7 +44,6 @@ class MobilityOutputs:
         """
         return (
             self.author_affiliations,
-            self.author_affiliations_unique,
             self.author_inbreeding_proxy,
             self.author_articles,
         )
@@ -64,7 +57,7 @@ class MobilityConfig:
     :param researcher_metadata: Researcher metadata artifact from name matching.
     :param article_author: External article-author evidence dataset.
     :param affiliations: External GeoPackage affiliation dataset.
-    :param outputs: Explicit paths for the four mobility artifacts.
+    :param outputs: Explicit paths for the three mobility artifacts.
     :param enable_university_affiliation_inbreeding_detection: Use the stricter
         university/early-affiliation inbreeding rule.
     :param enable_coaffiliated_professor_merge: Merge professor rows for the
