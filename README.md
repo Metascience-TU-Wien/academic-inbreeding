@@ -26,7 +26,15 @@ The project requires Python 3.12 or later, excluding Python 3.14.1.
 
 ### Containerized execution
 
-Container use is optional; `uv` is the recommended standard installation method. Docker is convenient for local development, while Apptainer is suited to shared HPC systems where Docker may be restricted. Containers keep configuration and data on mounted host directories, so generated outputs persist outside the image. See [Containerization](docs/CONTAINERS.md) for build, execution, data-mounting, and HPC/SLURM instructions.
+Container use is optional; `uv` remains the standard installation method. Docker supports local execution; Apptainer is suitable for HPC systems where Docker may be restricted. Tagged releases are published to [GHCR](https://github.com/Metascience-TU-Wien/academic-inbreeding/pkgs/container/academic-inbreeding) when the publishing workflow succeeds and package visibility permits access. Prefer versioned tags (for example, `0.1.0`) rather than `latest` for reproducible analyses.
+
+```bash
+docker pull ghcr.io/metascience-tu-wien/academic-inbreeding:0.1.0
+apptainer pull academic-inbreeding.sif docker://ghcr.io/metascience-tu-wien/academic-inbreeding:0.1.0
+make matching IMAGE_REF=ghcr.io/metascience-tu-wien/academic-inbreeding:0.1.0
+```
+
+See [Containerization](docs/CONTAINERS.md) for builds, external data mounts, image versions, and HPC usage.
 
 ## Quick start
 

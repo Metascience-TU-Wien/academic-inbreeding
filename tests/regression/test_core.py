@@ -1199,13 +1199,13 @@ def test_absolute_performance_note_distinguishes_nb_ames_from_ols_coefficients()
         "and ordinary least squares (OLS) regression coefficients (Coef.) for "
         r"P(top 10\%), P(top 5\%), and P(top 1\%)"
     ) in note
-    assert "AMEs for Publications represent changes in the expected publication count" in note
+    assert "Publications AMEs are expressed in publication-count units" in note
     assert "number of publications per professor (Publications)" in note
     assert "OLS coefficients for the P indicators represent changes in fractionally counted" in note
     assert "OLS $p$-values are based on $t$-tests" in note
     assert "negative binomial AME $p$-values are based on $z$-tests" in note
     assert "Full Prof. (Full Professor) is the reference category" in note
-    assert "Adjusted $R^2$ denotes the adjusted coefficient of determination" in note
+    assert "Adjusted $R^2$" not in note
 
 
 def test_regression_suite_sorts_printed_models_in_specification_order(
@@ -1401,28 +1401,23 @@ def test_descriptive_statistics_keeps_group_sample_and_scaled_mwpr_summary() -> 
     )
     table = descriptive_statistics_latex_table(data)
     assert (
-        r"\caption{Descriptive statistics of the professor-level analytical sample (\(n=3\))}"
-        in table
+        r"\caption{Descriptive statistics of the professor-level analytical sample by "
+        r"academic-inbreeding status (\(n=3\))}" in table
     )
     assert r"\multicolumn{4}{c}{\textbf{Non-inbred}}" in table
     assert r"\multicolumn{4}{c}{\textbf{Inbred}}" in table
     assert r"Professors, \(n\) & \multicolumn{4}{l}{1} & \multicolumn{4}{l}{2}" in table
-    assert (
-        "Mean weighted percentile rank (mwPR) [percentile points] & 50.0 & -- & 50.0 & "
-        "50.0 & 65.0 & 7.1 & 60.0 & 70.0"
-    ) in table
-    assert (
-        r"PP(top 10\%) [percentage points] & 10.0 & -- & 10.0 & 10.0 & 25.0 & 7.1 & " r"20.0 & 30.0"
-    ) in table
+    assert (r"mwPR [\%] & 50.0 & -- & 50.0 & " "50.0 & 65.0 & 7.1 & 60.0 & 70.0") in table
+    assert (r"PP(top 10\%) [\%] & 10.0 & -- & 10.0 & 10.0 & 25.0 & 7.1 & " r"20.0 & 30.0") in table
     assert r"Publications [count] & 4 & -- & 4 & 4 & 7 & 1 & 6 & 8" in table
-    assert r"P(top 10\%) [fractional publication counts]" in table
-    assert r"P(top 5\%) [fractional publication counts]" in table
-    assert r"P(top 1\%) [fractional publication counts]" in table
-    assert "Co-affiliation publication share [percentage points]" in table
-    assert "Mean coauthors" in table
+    assert r"P(top 10\%) [count]" in table
+    assert r"P(top 5\%) [count]" in table
+    assert r"P(top 1\%) [count]" in table
+    assert r"Co-affiliation publication share [\%]" in table
+    assert "Mean coauthors per publication [-]" in table
     assert "Domestic mobility [years]" in table
     assert "International mobility [years]" in table
-    assert "First publication year" in table
+    assert "First publication year [year]" in table
     assert (
         r"\quad Full Prof. & \multicolumn{4}{l}{1 (100)} & " r"\multicolumn{4}{l}{1 (50)}" in table
     )
@@ -1436,10 +1431,13 @@ def test_descriptive_statistics_keeps_group_sample_and_scaled_mwpr_summary() -> 
     # Target format puts absolute outcomes in the main variable sequence, with no source heading
     # or extra prose about fractional sums.
     assert r"\textbf{Absolute performance variables}" not in table
-    assert "fractionally counted highly cited publication counts" in table
     assert (
-        "Academic-title entries are counts with percentages within each academic-inbreeding group"
-        not in table
+        "fractional counts obtained by summing the corresponding "
+        "publication-level fractional indicators" in table
+    )
+    assert (
+        "Academic-title entries are counts with percentages within each "
+        "academic-inbreeding group" not in table
     )
     assert "ASJC field composition is controlled" not in table
     assert "The external co-affiliation publication rate is available" not in table
@@ -1744,7 +1742,7 @@ def test_source_model10_full_specification_table_and_note_are_renderable() -> No
     assert table.count(r"\multicolumn{1}{c}{Coef.}") == len(outcomes) - 1
     assert table.count(r"\multicolumn{1}{c}{AME}") == 1
     assert r"\(n=400\)" in table
-    assert "Publications AMEs are expressed in publication-count units" in table
+    assert "AMEs for Publications represent changes in the expected" in table
     assert "AMEs are average derivatives for continuous predictors" in table
     assert "average discrete differences for categorical predictors" in table
     assert "HC3 heteroskedasticity-robust standard errors (Robust SE)" in table
@@ -1816,7 +1814,7 @@ def test_source_model_comparison_tables_keep_all_specification_assertions(
     assert "Academic age$^2$" in table
     assert "Total mobility" in table
     assert "Co-affiliation publication share" in table
-    assert r"\multicolumn{2}{c}{---}" in table
+    assert r"\providecommand{\na}{\multicolumn{2}{c}{--}}" in table
     assert table.count(r"\txt{Yes}") == 3
     first = result.models[("pp_top_1", "m1")]
     assert f"AIC & \\fit{{{float(first.fit_statistics['aic']):,.0f}}}" in table
@@ -1890,4 +1888,4 @@ def test_n_public_negative_binomial_comparison_uses_full_rows_without_adjusted_r
     assert "Publications AMEs are expressed in publication-count units" in table
     assert "average marginal effects (AMEs)" in table
     assert "HC3 heteroskedasticity-robust standard errors (Robust SE)" in table
-    assert "p-values are based on z-tests" in table
+    assert "p-values are based on $z$-tests" in table
