@@ -1392,7 +1392,8 @@ def negative_binomial_publication_note(columns: list[LatexModelColumn]) -> str:
         r"The dependent variables are the number of publications per professor (Publications) "
         r"and the "
         r"fractionally counted numbers of publications in the top 10\%, top 5\%, and top 1\% "
-        r"of citation impact, respectively. AMEs for Publications represent changes in the "
+        r"of citation impact, respectively. Publications AMEs are expressed in publication-count "
+        r"units and represent changes in the "
         r"expected publication count, whereas OLS coefficients for the P indicators represent "
         r"changes in fractionally counted numbers of highly cited publications. AMEs represent "
         r"average derivatives for continuous predictors and average discrete differences for "
@@ -1810,9 +1811,11 @@ def model_comparison_preamble(
     *,
     dependent_variable: str,
     model_ids: tuple[str, ...],
+    sample_size: int | None = None,
     outcome_aliases: Mapping[str, str] | None = None,
 ) -> list[str]:
     label = outcome_label(dependent_variable, outcome_aliases)
+    sample_note = f" (\\(n={latex_integer(sample_size)}\\))" if sample_size is not None else ""
     return [
         r"\providecommand{\coef}[3]{#1 & .#2\textsuperscript{#3}}",
         r"\providecommand{\coefn}[2]{#1 & .#2}",
@@ -1825,7 +1828,7 @@ def model_comparison_preamble(
         r"\centering",
         (
             rf"\caption{{Association between academic inbreeding and {label} "
-            r"across regression model specifications}"
+            rf"across regression model specifications{sample_note}}}"
         ),
         rf"\label{{tab:supp_{latex_label_slug(dependent_variable)}_models}}",
         r"\scriptsize",
@@ -2085,7 +2088,8 @@ def model_comparison_n_public_nb_note(columns: list[LatexModelColumn]) -> str:
         + sample_note
         + r"Reported are average marginal effects (AMEs) from negative binomial regression "
         r"(NB). The dependent variable is the number of publications per professor "
-        r"(Publications). AMEs represent changes in the expected number of publications. "
+        r"(Publications). Publications AMEs are expressed in publication-count units and "
+        r"represent changes in the expected number of publications. "
         r"HC3 heteroskedasticity-robust standard errors (Robust SE) are calculated using the "
         r"delta method; p-values are based on $z$-tests. Full Professor (Full Prof.) is the "
         r"reference category for academic title; academic-title abbreviations are defined in "
@@ -2191,14 +2195,18 @@ def model_comparison_latex_table(
     lines = model_comparison_preamble(
         dependent_variable=dependent_variable,
         model_ids=model_ids,
+        sample_size=int(columns[0].model.fit.nobs) if columns else None,
         outcome_aliases=outcome_aliases,
     )
-    if dependent_variable not in {
-        HAZEN_PERCENTILE,
-        *PERCENTAGE_POINT_OUTCOMES,
-        *ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
-        N_PUBLIC,
-    }:
+    if any(column.model.model_type in {"frac", "ppml", "nb"} for column in columns) or (
+        dependent_variable
+        not in {
+            HAZEN_PERCENTILE,
+            *PERCENTAGE_POINT_OUTCOMES,
+            *ABSOLUTE_TOP_PERCENTILE_OUTCOMES,
+            N_PUBLIC,
+        }
+    ):
         lines.append(model_comparison_effect_header(columns))
     lines.append(r"\midrule")
     append_comparison_coefficient_rows(

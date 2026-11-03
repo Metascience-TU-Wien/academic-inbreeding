@@ -43,6 +43,13 @@ def ensure_stage_dependencies(
     if stage == "name_matching":
         return
     if stage == "name_disambiguation":
+        config = load_name_disambiguation_config(config_path)
+        _require_external_inputs(
+            (
+                ("[data].article_author_file_path", config.article_author_file_path),
+                ("[data].article_reference_file_path", config.article_reference_file_path),
+            )
+        )
         _ensure_matching(config_path)
         return
     if stage == "mobility":

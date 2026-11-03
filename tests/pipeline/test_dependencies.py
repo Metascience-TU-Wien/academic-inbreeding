@@ -55,18 +55,12 @@ def test_disambiguation_runs_matching_only_when_match_artifact_is_missing(
         calls.append("matching")
         matching_artifact.touch()
 
-    def run_disambiguation(config: object, *, overwrite: bool = False) -> None:
-        calls.append("disambiguation")
-        selection_artifact.touch()
-
     monkeypatch.setattr("acib.name_matching.workflow.run_name_matching", run_matching)
-    monkeypatch.setattr(
-        "acib.name_disambiguation.workflow.run_name_disambiguation", run_disambiguation
-    )
 
     dependencies.ensure_stage_dependencies("name_disambiguation", "unused.toml")
 
-    assert calls == ["matching", "disambiguation"]
+    assert calls == ["matching"]
+    assert not selection_artifact.exists()
 
 
 def test_existing_dependency_is_reused_without_running_producer(tmp_path: Path) -> None:
