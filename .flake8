@@ -1,0 +1,5 @@
+[flake8]
+per-file-ignores =
+    src/acib/regression/plots/model9_inbreeding_predictions.py:E402
+    src/acib/regression/plots/professor_violin.py:E402
+    src/acib/statistical_matching/plots.py:E402
