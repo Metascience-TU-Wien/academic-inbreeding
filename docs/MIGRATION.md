@@ -1,5 +1,20 @@
 # Migration plan and results
 
+## Approved de-identified statistical-matching input
+
+- The user approved allowing statistical matching to consume the anonymized
+  regression artifact when it omits `sc_id`. `StatisticalMatchingInputSchema`
+  retains the regression artifact's other shared field checks and validates
+  uniqueness when `sc_id` is present; statistical matching does not use
+  researcher identifiers in its calculations. The regression producer's
+  `RegressionInputOutputSchema` remains unchanged and still requires unique
+  `sc_id` values for generated inputs.
+- The synthetic Regression Analysis and Statistical Matching notebooks both
+  consume the canonical artifact at `regression.outputs.regression_input`.
+  The synthetic config selects all four relative and four absolute outcomes
+  and writes matching artifacts and plots beneath
+  `data/output/synthetic/statistical_matching/`.
+
 ## Approved regression estimator refactor
 
 - This section supersedes the earlier regression-robustness-bundle description

@@ -166,8 +166,12 @@ def prepare_scopus_author_affiliations(authors: pd.DataFrame) -> pd.DataFrame:
     for column in PARENT_AFFILIATION_COLUMNS:
         if column not in result:
             result[column] = pd.NA
-    parent_ids = result[PARENT_AFFILIATION_COLUMNS[0]]
-    for column in PARENT_AFFILIATION_COLUMNS[1:]:
+    populated_parent_columns = [
+        column for column in PARENT_AFFILIATION_COLUMNS if result[column].notna().any()
+    ]
+    parent_columns = populated_parent_columns or [PARENT_AFFILIATION_COLUMNS[0]]
+    parent_ids = result[parent_columns[0]]
+    for column in parent_columns[1:]:
         parent_ids = parent_ids.combine_first(result[column])
     result[AFFILIATION_ID_PARENT] = parent_ids
     result[AFFILIATION_ID] = np.where(parent_ids.notna(), parent_ids, result[AFFILIATION_ID])
