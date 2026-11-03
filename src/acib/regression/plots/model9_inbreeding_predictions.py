@@ -31,6 +31,7 @@ from acib.regression.plots.style import (
 )
 
 DEFAULT_OUTPUT_BASENAME = "model9_inbreeding_predictions"
+_PLOT_TEXT_COLOR = "#2D2A26"
 STATUS_ORDER: tuple[bool, ...] = (False, True)
 STATUS_LABELS = {False: "Non-inbred", True: "Inbred"}
 STATUS_Y_POSITIONS = {False: 0.54, True: 0.46}
@@ -342,7 +343,13 @@ def plot_model9_inbreeding_predictions(
         axis.set_xlim(*limits)
         if ticks:
             axis.set_xticks(ticks)
-        axis.set_title(outcome.label, loc="left", fontsize=22, fontweight="bold")
+        axis.set_title(
+            outcome.label,
+            loc="left",
+            fontsize=22,
+            fontweight="bold",
+            color=_PLOT_TEXT_COLOR,
+        )
         if config.group_by_title:
             axis.set_ylim(-0.5, len(titles) - 0.5)
             axis.set_yticks([title_positions[title] for title in titles])
@@ -359,8 +366,8 @@ def plot_model9_inbreeding_predictions(
         axis.spines["right"].set_visible(False)
         axis.spines["left"].set_color("#B8B3AA")
         axis.spines["bottom"].set_color("#B8B3AA")
-        axis.tick_params(axis="x", labelsize=22)
-        axis.tick_params(axis="y", length=0)
+        axis.tick_params(axis="x", labelsize=22, colors=_PLOT_TEXT_COLOR)
+        axis.tick_params(axis="y", length=0, colors=_PLOT_TEXT_COLOR)
     for axis in axes[len(config.outcomes) :]:
         axis.set_visible(False)
     if config.group_by_title:
@@ -386,7 +393,9 @@ def plot_model9_inbreeding_predictions(
             fontsize=20,
             bbox_to_anchor=(0.5, 1.0),
         )
-    figure.supxlabel("Average adjusted prediction [%]", fontsize=22, y=0.052)
+    figure.supxlabel(
+        "Average adjusted prediction [%]", fontsize=22, y=0.052, color=_PLOT_TEXT_COLOR
+    )
     figure.subplots_adjust(
         left=0.16 if config.group_by_title else 0.14,
         right=0.99,

@@ -10,8 +10,16 @@ import pandas as pd
 import pandera.pandas as pa
 from pandera.typing import Series
 
-from acib.constants import IS_INBRED
+from acib.constants import IS_INBRED, RESEARCHER_ID
 from acib.regression.schemas import RegressionInputOutputSchema
+
+
+class StatisticalMatchingInputSchema(RegressionInputOutputSchema):
+    """Validate regression fields while allowing intentionally de-identified input."""
+
+    sc_id: Series[Any] | None = pa.Field(
+        default=None, alias=RESEARCHER_ID, nullable=False, unique=True
+    )
 
 
 def validate_matching_input(data: pd.DataFrame, required: set[str]) -> pd.DataFrame:
@@ -22,7 +30,7 @@ def validate_matching_input(data: pd.DataFrame, required: set[str]) -> pd.DataFr
     :return: Validated data, retaining extra columns.
     :raises ValueError: If a configured field is missing.
     """
-    validated = RegressionInputOutputSchema.validate(data)
+    validated = StatisticalMatchingInputSchema.validate(data)
     missing = required - set(validated.columns)
     if missing:
         raise ValueError(f"Regression input schema missing configured columns: {sorted(missing)}")

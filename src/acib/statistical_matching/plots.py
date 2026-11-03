@@ -25,6 +25,7 @@ from acib.statistical_matching.constants import (
 )
 
 _BACKGROUND = "#FFFFFF"
+_TEXT = "#2D2A26"
 _GRID = "#E4E0D8"
 _BALANCED = "#2F5D7C"
 _IMBALANCED = "#B23A48"
@@ -157,7 +158,7 @@ def write_balance_plot(
         ax.axvline(0, color=_ZERO, linewidth=1.2)
         ax.axvline(threshold, color=_THRESHOLD, linewidth=1.8, linestyle="--")
         max_smd = float(rows["abs_diff_adjusted"].max())
-        ax.set_title(method, fontsize=13, fontweight="bold", pad=8)
+        ax.set_title(method, fontsize=13, fontweight="bold", pad=8, color=_TEXT)
         values = summary.loc[summary["method"].astype(str).eq(method)]
         sample_text = f"max |SMD| = {max_smd:.2f}"
         if not values.empty and {"n_non_inbred", "n_inbred", "ess_non_inbred"} <= set(
@@ -182,6 +183,7 @@ def write_balance_plot(
             ha="right",
             va="bottom",
             fontsize=10.5,
+            color=_TEXT,
             bbox={
                 "boxstyle": "round,pad=0.32",
                 "facecolor": "white",
@@ -201,7 +203,7 @@ def write_balance_plot(
         ax.spines["right"].set_visible(False)
         ax.spines["left"].set_color(_UNADJUSTED)
         ax.spines["bottom"].set_color(_UNADJUSTED)
-        ax.tick_params(axis="x", labelsize=13)
+        ax.tick_params(axis="x", labelsize=13, colors=_TEXT)
     for ax in axes[len(methods) :]:
         ax.set_visible(False)
     labels = (
@@ -212,10 +214,10 @@ def write_balance_plot(
     for index, ax in enumerate(axes[: len(methods)]):
         ax.set_yticks(labels["y"].tolist())
         if index % 2 == 0:
-            ax.set_yticklabels(labels["label"].tolist(), fontsize=12)
-            ax.tick_params(axis="y", labelleft=True, length=0)
+            ax.set_yticklabels(labels["label"].tolist(), fontsize=12, color=_TEXT)
+            ax.tick_params(axis="y", labelleft=True, length=0, colors=_TEXT)
         else:
-            ax.tick_params(axis="y", labelleft=False, length=0)
+            ax.tick_params(axis="y", labelleft=False, length=0, colors=_TEXT)
     fig.text(
         0.59,
         0.135,
@@ -223,6 +225,7 @@ def write_balance_plot(
         ha="center",
         va="center",
         fontsize=13,
+        color=_TEXT,
     )
     handles = [
         Line2D(
@@ -272,6 +275,7 @@ def write_balance_plot(
         ncol=4,
         frameon=False,
         fontsize=11,
+        labelcolor=_TEXT,
     )
     fig.subplots_adjust(left=0.19, right=0.99, top=0.935, bottom=0.20, wspace=0.08, hspace=0.32)
     directory.mkdir(parents=True, exist_ok=True)
