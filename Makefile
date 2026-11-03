@@ -1,5 +1,6 @@
 IMAGE ?= academic-inbreeding
 TAG ?= latest
+UTAG ?=
 CONFIG_DIR ?= $(CURDIR)/config
 DATA_DIR ?= $(CURDIR)/data
 APPTAINER_IMAGE ?= $(CURDIR)/academic-inbreeding.sif
@@ -10,6 +11,7 @@ DOCKER_RUN = docker run --rm \
 
 .DEFAULT_GOAL := help
 .PHONY: help build shell matching disambiguation mobility regression statistical-matching \
+	push \
 	apptainer-build apptainer-shell apptainer-submit apptainer-matching \
 	apptainer-disambiguation apptainer-mobility apptainer-regression \
 	apptainer-statistical-matching
@@ -17,6 +19,7 @@ DOCKER_RUN = docker run --rm \
 help:
 	@echo "Docker targets:"
 	@echo "  make build                 Build the image"
+	@echo "  make push UTAG=<registry>  Push version and latest tags (requires HEAD on a Git tag)"
 	@echo "  make shell                 Open a shell in the container"
 	@echo "  make matching              Run name matching (ARGS=... optional)"
 	@echo "  make disambiguation        Run name disambiguation (ARGS=... optional)"
@@ -29,6 +32,18 @@ help:
 
 build:
 	docker build --tag $(IMAGE):$(TAG) .
+
+push:
+	@set -e; \
+	if [ -z "$(UTAG)" ]; then echo "Set UTAG to the registry namespace (for example, your Docker Hub username)." >&2; exit 1; fi; \
+	GIT_TAG=$$(git describe --tags --exact-match HEAD 2>/dev/null) || { echo "Not on a Git tag. Please create a Git tag before pushing." >&2; exit 1; }; \
+	docker image inspect "$(IMAGE):$(TAG)" >/dev/null || { echo "Local image $(IMAGE):$(TAG) not found; run 'make build' first." >&2; exit 1; }; \
+	echo "Tagging and pushing $(UTAG)/$(IMAGE):$$GIT_TAG..."; \
+	docker tag "$(IMAGE):$(TAG)" "$(UTAG)/$(IMAGE):$$GIT_TAG"; \
+	docker push "$(UTAG)/$(IMAGE):$$GIT_TAG"; \
+	echo "Tagging and pushing $(UTAG)/$(IMAGE):latest..."; \
+	docker tag "$(IMAGE):$(TAG)" "$(UTAG)/$(IMAGE):latest"; \
+	docker push "$(UTAG)/$(IMAGE):latest"
 
 shell:
 	docker run --rm -it --entrypoint /bin/bash \

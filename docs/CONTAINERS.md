@@ -30,6 +30,24 @@ This builds `academic-inbreeding:latest` from `Dockerfile`. Set `IMAGE` and
 `TAG` to change the image name or tag. The Dockerfile's entry point is
 `uv run --no-sync`; the default command prints name-matching help.
 
+### Push a release image
+
+After building, push is restricted to a commit that is exactly on a Git tag.
+Log in to the destination registry first, then set `UTAG` to its namespace
+(for example, a Docker Hub username or organization):
+
+```bash
+docker login
+make build
+make push UTAG=my-organization
+```
+
+The target tags the local `$(IMAGE):$(TAG)` image as
+`$(UTAG)/$(IMAGE):<git-tag>` and `$(UTAG)/$(IMAGE):latest`, then pushes both.
+It obtains the version from `git describe --tags --exact-match HEAD`; it does
+not accept an arbitrary version override. Run `make push` from the tagged
+checkout and ensure `UTAG` matches the registry namespace/repository layout.
+
 Run the synthetic name-matching/disambiguation example:
 
 ```bash
