@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -43,13 +42,19 @@ from acib.name_matching.constants import (
     RESEARCHER_SURNAME,
     SCOPUS_ID_MAPPING,
 )
+from acib.name_matching.input import (
+    load_name_matching_inputs,
+    prepare_name_matching_inputs,
+)
 from acib.name_matching.matching import ResearcherMatchResult, match_researchers
+from acib.name_matching.output import (
+    save_name_matching_results,
+    validate_name_matching_output_path,
+)
+from acib.name_matching.results import NameMatchingInputs, NameMatchingResult
 from acib.schemas import (
     MatchingOutputSchema,
-    ResearcherInputSchema,
-    ScopusAuthorInputSchema,
 )
-from acib.schemas.affiliations import parse_nullable_affiliation_ids
 
 _logger = structlog.getLogger(__name__)
 
@@ -266,37 +271,23 @@ def _is_blank_value(value: object) -> bool:
     return str(value).strip().lower() in {"", "nan", "none", "null", "[]", "<na>"}
 
 
-def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) -> pd.DataFrame:
-    """Load configured CSVs, execute matching, and write resolved records.
+def compute_name_matching(
+    inputs: NameMatchingInputs,
+    config: NameMatchingConfig,
+) -> NameMatchingResult:
+    """Compute validated researcher-to-author matches without file output.
 
+    :param inputs: Validated researcher and candidate-author DataFrames.
     :param config: Settings loaded from the ``[name_matching]`` TOML table.
-    :return: The rows written to the resolved-matches output.
-    :raises FileNotFoundError: If either configured input does not exist.
-    :raises KeyError: If required source columns are absent.
-    :raises ValueError: If researcher IDs are missing or not unique, or metadata restoration
-     changes row count.
+    :return: Validated resolved researcher-to-author records.
+    :raises ValueError: If researcher metadata restoration changes the row count.
     """
-    started_at = time.perf_counter()
-    if config.outputs.resolved_researchers.exists() and not overwrite:
-        raise FileExistsError(
-            f"Name-matching output already exists: {config.outputs.resolved_researchers}. "
-            "Pass overwrite=True explicitly to replace it."
-        )
-    _logger.info(
-        "Loading name matching inputs",
-        researcher_file_path=str(config.researcher_file_path),
-        candidate_authors_file=str(config.candidate_authors_file),
+    inputs = prepare_name_matching_inputs(
+        inputs.researchers,
+        inputs.candidate_authors,
+        researcher_output_metadata=inputs.researcher_output_metadata,
     )
-    config.check_paths_exist()
-    output_path: Path = config.outputs.resolved_researchers.resolve()
-    source_repository = (Path(__file__).resolve().parents[4] / "name-matching-playground").resolve()
-    if output_path.is_relative_to(source_repository):
-        raise ValueError(
-            "Refusing to write name-matching output inside the read-only source repository: "
-            f"{source_repository}"
-        )
-    researcher_metadata = pd.read_csv(config.researcher_file_path)
-    researcher_metadata = ResearcherInputSchema.validate(researcher_metadata, lazy=True)
+    researcher_metadata = inputs.researchers
     if config.enable_organisation_filter and UNIVERSITY_NAME not in researcher_metadata:
         raise ValueError(
             f"Researcher input requires {UNIVERSITY_NAME!r} when organization filtering is enabled"
@@ -320,15 +311,7 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
             if column is not None and column in researcher_metadata
         ],
     ].copy()
-    parent_id_columns = {column: "string" for column in PARENT_AFFILIATION_COLUMNS}
-    authors = pd.read_csv(
-        config.candidate_authors_file,
-        dtype=parent_id_columns,
-    )
-    for column in PARENT_AFFILIATION_COLUMNS:
-        if column in authors:
-            authors[column] = parse_nullable_affiliation_ids(authors[column])
-    authors = ScopusAuthorInputSchema.validate(authors, lazy=True)
+    authors = inputs.candidate_authors
     _logger.info(
         "Loaded name matching inputs",
         researcher_rows=len(researcher_metadata),
@@ -353,13 +336,14 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
         [column for column in (RESEARCHER_ID, AUTHOR_ID, MATCH_PRIORITY) if column in pre_resolved],
     ].copy()
     matches = researchers.iloc[0:0].copy()
+    matching_details: ResearcherMatchResult | None = None
     if not researchers.empty:
         _logger.info(
             "Preparing researcher and candidate author names",
             researcher_rows=len(researchers),
             candidate_author_rows=len(authors),
         )
-        result: ResearcherMatchResult = match_researchers(
+        matching_details = match_researchers(
             researchers,
             authors,
             org_mapping=org_mapping,
@@ -367,7 +351,7 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
             enable_organisation_filter=config.enable_organisation_filter,
             max_workers=config.max_workers,
         )
-        matches = result.matched
+        matches = matching_details.matched
     resolved = pd.concat([pre_resolved, matches], ignore_index=True, sort=False)
     # Keep researcher input values authoritative. The resolved matching frame
     # contains projected researcher fields used during matching, some of which
@@ -381,20 +365,17 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
     resolved = resolved.loc[
         :, [column for column in resolved.columns if column in matching_metadata_columns]
     ]
-    researcher_output_metadata = pd.read_csv(
-        config.researcher_file_path,
-        dtype="string",
-        keep_default_na=False,
-    )
+    researcher_output_metadata = inputs.researcher_output_metadata
+    if researcher_output_metadata is None:
+        researcher_output_metadata = researcher_metadata.copy()
+    else:
+        researcher_output_metadata = researcher_output_metadata.copy()
     researcher_output_metadata[RESEARCHER_ID] = researcher_metadata[RESEARCHER_ID].array
-    researcher_output_metadata = researcher_output_metadata.drop(
-        columns=(
-            [config.existing_scopus_author_id_column]
-            if config.existing_scopus_author_id_column is not None
-            else []
-        ),
-        errors="ignore",
-    )
+    if config.existing_scopus_author_id_column is not None:
+        researcher_output_metadata = researcher_output_metadata.drop(
+            columns=[config.existing_scopus_author_id_column],
+            errors="ignore",
+        )
     resolved_row_count = len(resolved)
     output = researcher_output_metadata.merge(
         resolved,
@@ -423,19 +404,47 @@ def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) ->
     ordered_columns = [column for column in _SOURCE_OUTPUT_COLUMN_ORDER if column in output]
     ordered_columns.extend(column for column in output.columns if column not in ordered_columns)
     output = output.loc[:, ordered_columns]
+    return NameMatchingResult(
+        resolved_researchers=output,
+        matching_details=matching_details,
+    )
+
+
+def run_name_matching(config: NameMatchingConfig, *, overwrite: bool = False) -> pd.DataFrame:
+    """Run matching from configured CSVs and persist the legacy artifact.
+
+    This compatibility wrapper preserves the existing return type and output behavior.
+
+    :param config: Settings loaded from the ``[name_matching]`` TOML table.
+    :param overwrite: Whether an existing resolved-researchers artifact may be replaced.
+    :return: The validated rows written to the resolved-matches output.
+    :raises FileNotFoundError: If either configured input does not exist.
+    :raises FileExistsError: If output exists and overwrite was not requested.
+    """
+    started_at = time.perf_counter()
+    output_path = config.outputs.resolved_researchers
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"Name-matching output already exists: {output_path}. "
+            "Pass overwrite=True explicitly to replace it."
+        )
+    config.check_paths_exist()
+    validate_name_matching_output_path(config, overwrite=overwrite)
+    _logger.info(
+        "Loading name matching inputs",
+        researcher_file_path=str(config.researcher_file_path),
+        candidate_authors_file=str(config.candidate_authors_file),
+    )
+    inputs = load_name_matching_inputs(config)
+    result = compute_name_matching(inputs, config)
     _logger.info(
         "Writing resolved name matches",
-        output_rows=len(output),
+        output_rows=len(result.resolved_researchers),
         output_path=str(output_path),
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    serialized_output = output.copy()
-    for column in (AFFILIATION_ID, AFFILIATION_ID_PARENT):
-        if column in serialized_output:
-            serialized_output[column] = serialized_output[column].astype("Float64")
-    serialized_output.to_csv(output_path, index=False, encoding=config.encoding)
+    save_name_matching_results(result, config, overwrite=overwrite)
     _logger.info(
         "Finished name matching run",
         total_runtime_seconds=round(time.perf_counter() - started_at, 3),
     )
-    return output
+    return result.resolved_researchers

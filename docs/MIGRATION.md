@@ -974,3 +974,245 @@ reused without freshness detection. To prevent accidental replacement,
 auto-execution refuses partial producer output sets unless the producer's
 explicit overwrite option is supplied. See `docs/ARCHITECTURE.md` and
 `acib.pipeline.dependencies` for the canonical behavior.
+
+## In-memory pipeline architecture refactor — `name_matching`
+
+### Phase 1 baseline and dependency audit
+
+- The actual dependency graph is not a simple stage chain. Matching consumes
+  external researcher and candidate-author data. Disambiguation consumes the
+  matching artifact plus external article-author and article-reference data.
+  Mobility consumes matching metadata, disambiguation selections, and external
+  article-author and GeoPackage data. Regression-input preparation consumes the
+  mobility proxy plus external article/impact data; regression fitting consumes
+  the prepared researcher-level table. Statistical matching consumes that
+  regression-owned input and does not require fitted regression models.
+- The synthetic baseline was run with configured outputs redirected to
+  `/tmp/opencode/acib_pipeline_baseline_2026-11-04/`; the original repository
+  and existing target outputs were not written. Matching, disambiguation,
+  mobility, and statistical matching completed. A manifest with artifact
+  schemas, dtypes, representative rows, and SHA-256 hashes is at
+  `manifest.json` in that directory.
+- Default `uv run pytest -q` fails collection because matching and
+  disambiguation both contain a `test_workflow.py` basename. The compatible
+  baseline command `uv run pytest --import-mode=importlib -q` passed **349 tests**
+  with 26 warnings (pandas concatenation FutureWarnings, multiprocessing fork
+  deprecation, ZINB optimizer RuntimeWarnings, and a propensity-model
+  PerfectSeparationWarning).
+- The synthetic regression workflow is not runnable from its current declared
+  prebuilt input: `rebuild_input = false` is preserved, the artifact lacks the
+  regression contract's `sc_id`, and direct `RegressionSuite` fitting also
+  requires `n_away_years`, which is absent. Regression numerical equivalence is
+  therefore not baselined by this synthetic run. The config was not changed.
+- The existing mobility CLI currently ensures dependencies by running mobility
+  when its proxy is missing, then invokes mobility again from the CLI itself.
+  The baseline log confirmed two mobility analyses on a first run. Centralized
+  execution must ensure a stage runs at most once per request while preserving
+  standalone CLI behavior.
+
+### Phase 2 — `name_matching` computation/persistence split
+
+- Added `NameMatchingInputs` and `NameMatchingResult`. The result exposes the
+  resolved-researchers table and the existing matched/possible/unmatched
+  algorithm details. `prepare_name_matching_inputs` validates caller-provided
+  DataFrames; `load_name_matching_inputs` handles configured CSV loading.
+- Added `compute_name_matching`, which operates on in-memory inputs and returns
+  a result without writing files, and `save_name_matching_results`, which owns
+  schema validation, canonical CSV serialization, output-directory creation,
+  overwrite protection, and the read-only source-tree guard.
+- Kept `run_name_matching(config, overwrite=...)` as a compatibility wrapper
+  returning the same DataFrame and writing the same configured artifact. No
+  matching algorithm, priority, or configuration behavior was intentionally
+  changed. Post-refactor scientific equivalence remains unverified pending the
+  separately approved Phase 4 comparison.
+- Ruff and mypy passed for the changed matching package; all applicable
+  pre-commit hooks passed. No tests were modified in this phase.
+- Future reuse: the new in-memory matching result is intended to feed
+  disambiguation directly in the next approved stage. Mobility already has an
+  in-memory `InbreedingResult`; regression input building and statistical
+  matching also expose useful result objects that can be integrated later
+  without changing their scientific logic.
+
+### Phase 4 — `name_matching` verification
+
+- Added workflow integration coverage for computation without output-directory
+  creation, explicit result persistence, output schema/decision fields, and
+  overwrite protection. Added an adapted original-source test for inferring
+  ASJC codes from organization metadata while preserving configured codes. The
+  existing matching unit and workflow tests cover source-derived ID handling,
+  affiliation normalization, strategy priorities, and matching edge cases.
+- `uv run pytest --import-mode=importlib tests/name_matching/
+  tests/integration/test_name_matching_workflow.py -q`: **42 passed**, 5
+  existing pandas concatenation FutureWarnings.
+- `uv run pytest --import-mode=importlib -q`: **351 passed**, 26 warnings. The
+  warnings are the existing pandas concatenation FutureWarnings, multiprocessing
+  fork deprecation warnings, ZINB optimizer RuntimeWarnings, and statistical
+  matching PerfectSeparationWarning. The default pytest import mode still has
+  the previously documented duplicate `test_workflow.py` basename collection
+  conflict; importlib mode was used for the complete run.
+- Executed the original repository's `scripts.match_author_names.run_name_matching`
+  against the same synthetic researcher and candidate-author CSVs, writing only
+  under `/tmp/opencode`. The original and migrated output had the same 23
+  researcher/author/priority/EID decisions, in the same order. The complete CSV
+  is **not** equivalent: the original source output had 30 columns while the
+  migrated output had 31; notably, the migrated output preserves additional
+  source researcher metadata (including `historical_identifier`) and the
+  original source output did not preserve the same `person_fullname` values.
+  This metadata/serialization difference predates this computation/persistence
+  split and was not changed here; therefore only matching decisions, not the
+  complete source artifact, are confirmed equivalent. No approved behavior
+  change was implemented in this phase.
+- Independently compared the in-memory computation plus writer and the CLI
+  artifact against the pre-refactor synthetic baseline. Both matched the
+  baseline CSV byte-for-byte (SHA-256
+  `0bf640a3911861c9a90649e20f8b19309f42e8e287757390193663bbc193aa99`). The
+  historical baseline file was generated by the target's pre-refactor code;
+  this verifies the new split preserved existing target serialization.
+- Ruff passed for matching source and the scoped tests. Mypy passed for the
+  same files with no type errors; it emitted existing unused-config notices.
+  All applicable pre-commit hooks passed on the final changed files. No
+  configuration or notebook files were changed.
+- Limitation: synthetic regression fitting remains unverified for the reason
+  recorded above; this was outside the selected matching-stage comparison.
+
+## In-memory pipeline architecture refactor — `name_disambiguation`
+
+### Phase 1 audit and approved design
+
+- The artifact graph for this stage is `name_matching.outputs.resolved_researchers`
+  plus the external article-author and article-reference datasets to
+  `name_disambiguation.outputs`. Mobility consumes the disambiguation-owned
+  `final_author_selection`; regression also consumes selection data downstream.
+  These dependencies are artifact-specific and do not make the five-stage
+  migration order a simple computation chain.
+- The target already contained the source-derived scoring, clustering, and
+  selection implementation, input/output contracts, reports, CLI, and producer
+  dependency handling. This pass separates their I/O and compute interfaces; it
+  does not port or revise algorithms. `add_inferred_asjc_columns` and shared
+  title classification are reused. Disambiguation's own normalization remains
+  distinct where its whitespace/missing-value behavior differs from matching.
+- The approved API accepts in-memory matching rows and the two evidence tables,
+  returns all per-batch data and the four collected analytical tables, and
+  provides an explicit writer. `run_name_disambiguation` remains a compatibility
+  wrapper with its existing DataFrame return, configured writes, and
+  `enable_reporting` console behavior. The CLI continues to ensure the missing
+  matching producer artifact through the existing dependency layer.
+
+### Phase 2 — computation/persistence split
+
+- Added `NameDisambiguationInputs` and `NameDisambiguationResult`. The result
+  retains per-researcher `BatchDisambiguationResult` objects, pair decisions,
+  cluster membership, final selections, and selection-score diagnostics.
+- `load_name_disambiguation_inputs` reads the canonical matching artifact and
+  external CSV/Parquet evidence paths. `prepare_name_disambiguation_inputs`
+  validates already-loaded DataFrames with the same matching, article-evidence,
+  and citation-edge schemas. Relative/absolute path resolution remains in the
+  existing config loader; no TOML declaration changed.
+- `compute_name_disambiguation(inputs, config)` applies the existing scoring
+  preparation, thresholds, batch service, and output collectors in memory. It
+  neither reads nor writes files nor prints reports. `save_name_disambiguation_results`
+  persists an existing result through the canonical output properties, existing
+  Pandera contracts, and the same CSV/text/JSONL formats. The compatibility
+  `write_all_outputs` entry point remains available for per-batch results.
+- No scientific, threshold, classification, selection, or artifact contract
+  changes were intended. The CLI continues to invoke the existing configured
+  producer when its required generated matcher artifact is missing; missing
+  external evidence remains an error. Artifact existence and schema validity
+  are distinct from freshness: existing artifacts receive no stale detection.
+- Phase 4 coverage includes the stage's migrated unit/workflow tests and an
+  integration case that supplies all inputs in memory, verifies compute creates
+  no output directory, then explicitly saves and checks persisted tables and
+  artifacts. The focused command
+  `uv run pytest --import-mode=importlib tests/name_disambiguation/ tests/integration/test_name_disambiguation_workflow.py -q`
+  passed: 74 tests.
+- `uv run pytest -q` could not collect because two stage directories contain
+  the same test module basename (`test_workflow.py`); default import mode loaded
+  the disambiguation module for matching. With
+  `uv run pytest --import-mode=importlib -q`, the full suite passed: 352 passed.
+  It reported 26 warnings: NumPy concatenation future warnings, multiprocessing
+  fork deprecations, statsmodels runtime warnings, and a perfect-separation
+  warning. No tests were skipped.
+- A representative synthetic run of the unmodified original repository was
+  compared with the target. Pair decisions, clusters, and score diagnostics
+  were byte-identical. All 17 final-selection rows and every shared selection
+  field other than `inferred_asjc_labels` were identical. The target supplies
+  ASJC labels and report details/formatting absent from original source, so the
+  final-selection CSV and both reports differ bytewise. This is an existing
+  source-versus-target difference, not an intended change in this in-memory
+  refactor; it is recorded as a compatibility limitation, not represented as
+  complete source equivalence. The pre-refactor target baseline and refactored
+  outputs were byte-identical across all six artifacts.
+- Dependency/path tests and configured producer behavior remain covered by
+  existing CLI/dependency integration tests in the full suite; the direct
+  in-memory path intentionally performs no producer execution. Missing external
+  evidence remains an error, and no freshness behavior is claimed.
+- Final Ruff passed for the stage source and tests; mypy passed for stage source
+  with no type errors (and existing unused-config notices). All applicable
+  pre-commit hooks passed on changed files after Black formatting.
+- Ruff, mypy, and `compileall` passed for `src/acib/name_disambiguation`.
+  Mypy reported the existing unused-config notices. All applicable pre-commit
+  hooks passed on the changed files after Black formatting; Flake8, Black,
+  mypy, and isort all passed in the final run.
+- The follow-up notebook `notebooks/disambiguate_author_names.ipynb` now reads
+  the same synthetic TOML configuration, ensures the configured matcher
+  dependency, loads validated inputs, and calls `compute_name_disambiguation`
+  directly. It displays all result tables and per-researcher batch details, plus
+  descriptive plots, without calling the persistence API or writing
+   disambiguation artifacts. This is a notebook execution/presentation change;
+   it does not change scientific behavior or pipeline configuration.
+
+## Mobility configured in-memory API follow-up
+
+- Added `MobilityInputs` and `load_mobility_inputs(config)` to load the
+  canonical configured researcher-selection and matching artifacts plus the
+  external article-author and affiliation datasets, validating their existing
+  contracts. Added `compute_mobility(inputs, config)` to apply the current
+  metadata enrichment, optional professor preparation, scientific options, and
+  output validation, returning the existing `InbreedingResult` without writing
+  files. The notebook now uses those stage APIs rather than assembling the
+  low-level analyzer call or manually wiring metadata.
+- `run_mobility(config)` remains the compatibility persistence path: it retains
+  the read-only-source output guard and writes the same three configured
+  artifacts from the returned in-memory result. The in-memory loader resolves
+  producer-owned upstream paths but does not run producer stages; missing
+  generated artifacts must be prepared through explicit stage execution. No
+  freshness/staleness detection or scientific behavior change is introduced.
+- Added Phase 4 coverage for configured loading, in-memory computation without
+  output-directory creation, exact CSV persistence equivalence between the
+  in-memory result and compatibility runner, explicit CLI dependency invocation,
+  and missing matching/disambiguation/mobility artifact producer execution.
+- Before the warning cleanup, `uv run pytest tests/mobility/ -q` passed 61
+  tests and the full suite passed 354 tests. These were superseded by the
+  post-cleanup verification below.
+- Executed all code cells in `notebooks/inbreeding_detection.ipynb` against the
+  configured synthetic inputs: 3 profile summaries, 5 affiliation-history rows,
+  and 11 per-profile article rows were produced in memory. The configured
+  mobility output directory remained absent.
+- Compared the source repository's mobility analyzer against the target
+  `compute_mobility` on the same configured synthetic inputs and options. The
+  79-column/3-row author summary and 13-column/5-row affiliation history were
+  exactly equal. The 15-column/11-row author-article tables were equal after
+  normalizing IDs to strings, which accounts for the already-approved target
+  text-serialization contract. No unexpected scientific differences were
+  observed. The source repository remained read-only.
+- Ruff and mypy passed for the mobility package; mypy emitted only the existing
+  unused-config notices. All applicable pre-commit hooks passed for the
+  changed implementation, tests, notebook, and migration record. No commit was
+  created.
+- The notebook exposed pandas concatenation `FutureWarning`s when optional
+  affiliation-parent columns were entirely empty. Mobility now omits only
+  all-missing candidates before applying the same parent precedence, preserving
+  selected values and the existing inferred dtype while avoiding the warning.
+  A regression test checks both the IDs and `int64` dtype for this case.
+  Source-comparison results remained unchanged after this adjustment.
+- Post-cleanup verification: `uv run pytest tests/mobility/ -q` passed **62**
+  tests with four multiprocessing fork-deprecation warnings;
+  `uv run pytest tests/integration/ -q` passed **27** with two existing
+  name-matching pandas `FutureWarning`s; and
+  `uv run pytest --import-mode=importlib -q` passed **355** with 12 warnings
+  (five name-matching pandas `FutureWarning`s, four multiprocessing fork
+  deprecations, two statsmodels numerical warnings, and one
+  `PerfectSeparationWarning`). Importlib mode avoids the known duplicate-module
+  collection conflict. Re-executing the notebook produced no affiliation
+  concatenation warnings; the Agg headless backend emitted its usual display
+  warning. Ruff, mypy, and all applicable pre-commit hooks passed.

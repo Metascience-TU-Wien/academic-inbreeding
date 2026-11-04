@@ -3,6 +3,16 @@
 """Standalone academic mobility and inbreeding analysis."""
 
 from acib.mobility.config import MobilityConfig, MobilityOutputs
-from acib.mobility.workflow import run_mobility
+from acib.mobility.inbreeding import InbreedingResult
+from acib.mobility.input import MobilityInputs, load_mobility_inputs
+from acib.mobility.workflow import compute_mobility, run_mobility
 
-__all__ = ["MobilityConfig", "MobilityOutputs", "run_mobility"]
+__all__ = [
+    "InbreedingResult",
+    "MobilityConfig",
+    "MobilityInputs",
+    "MobilityOutputs",
+    "compute_mobility",
+    "load_mobility_inputs",
+    "run_mobility",
+]

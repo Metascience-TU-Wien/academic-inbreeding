@@ -39,6 +39,7 @@ from acib.name_disambiguation.constants import (
 )
 from acib.name_disambiguation.models import BatchDisambiguationResult
 from acib.name_disambiguation.reporting import render_json_report, render_text_report
+from acib.name_disambiguation.results import NameDisambiguationResult
 from acib.name_disambiguation.scoring_evidence import (
     normalize_current_affiliation_id,
     parse_current_affiliation_id_values,
@@ -68,6 +69,60 @@ def write_all_outputs(
     :param overwrite: Whether to replace existing disambiguation outputs.
     :raises FileExistsError: If outputs already exist and replacement is not enabled.
     """
+    _check_output_paths(config, overwrite=overwrite)
+    result = collect_name_disambiguation_result(batch_results)
+    _write_result_outputs(result, config)
+
+
+def save_name_disambiguation_results(
+    result: NameDisambiguationResult,
+    config: NameDisambiguationConfig,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """Persist a computed result without rerunning disambiguation.
+
+    :param result: Existing in-memory disambiguation results.
+    :param config: Configuration owning all six output artifacts.
+    :param overwrite: Whether existing stage outputs may be replaced.
+    :raises FileExistsError: If outputs exist and replacement was not enabled.
+    """
+    _check_output_paths(config, overwrite=overwrite)
+    _write_result_outputs(result, config)
+
+
+def collect_name_disambiguation_result(
+    batch_results: list[BatchDisambiguationResult],
+) -> NameDisambiguationResult:
+    """Collect and validate tabular artifacts from per-researcher results.
+
+    :param batch_results: Computed per-researcher results.
+    :return: Complete in-memory result including all persisted analytical tables.
+    """
+    return NameDisambiguationResult(
+        batch_results=batch_results,
+        pair_decisions=_validate_output_frame(
+            collect_pair_decisions(batch_results), AuthorPairDecisionSchema
+        ),
+        clusters=_validate_output_frame(
+            collect_clusters(batch_results), AuthorClusterMembershipSchema
+        ),
+        final_author_selection=_validate_output_frame(
+            collect_final_selections(batch_results), ResearcherDisambiguationSelectionSchema
+        ),
+        final_author_selection_scores=_validate_output_frame(
+            collect_final_selection_scores(batch_results), AuthorClusterSelectionScoreSchema
+        ),
+    )
+
+
+def _check_output_paths(config: NameDisambiguationConfig, *, overwrite: bool) -> None:
+    """Reject existing artifacts unless replacement was explicitly requested.
+
+    :param config: Configuration owning the disambiguation artifacts.
+    :param overwrite: Whether existing outputs may be replaced.
+    :raises FileExistsError: If any configured output already exists.
+    """
     existing = [path for path in config.outputs.all_paths() if path.exists()]
     if existing and not overwrite:
         raise FileExistsError(
@@ -75,25 +130,34 @@ def write_all_outputs(
             + ", ".join(map(str, existing))
         )
 
+
+def _write_result_outputs(
+    result: NameDisambiguationResult, config: NameDisambiguationConfig
+) -> None:
+    """Write already-collected tables and rendered reports from a result object.
+
+    :param result: In-memory result to persist.
+    :param config: Configuration owning all output paths.
+    """
     outputs = (
         (
             config.outputs.pair_decisions,
-            collect_pair_decisions(batch_results),
+            result.pair_decisions,
             AuthorPairDecisionSchema,
         ),
         (
             config.outputs.clusters,
-            collect_clusters(batch_results),
+            result.clusters,
             AuthorClusterMembershipSchema,
         ),
         (
             config.outputs.final_author_selection,
-            collect_final_selections(batch_results),
+            result.final_author_selection,
             ResearcherDisambiguationSelectionSchema,
         ),
         (
             config.outputs.final_author_selection_scores,
-            collect_final_selection_scores(batch_results),
+            result.final_author_selection_scores,
             AuthorClusterSelectionScoreSchema,
         ),
     )
@@ -105,26 +169,26 @@ def write_all_outputs(
     text_report = (
         "\n".join(
             render_text_report(
-                result.decisions,
-                result.clusters,
-                result.final_selection,
-                result.final_selection_scores,
+                batch_result.decisions,
+                batch_result.clusters,
+                batch_result.final_selection,
+                batch_result.final_selection_scores,
             ).rstrip()
-            for result in batch_results
+            for batch_result in result.batch_results
         ).rstrip()
         + "\n"
     )
     json_rows = [
         {
-            RESEARCHER_ID: result.sc_id,
+            RESEARCHER_ID: batch_result.sc_id,
             _REPORT_COLUMN: render_json_report(
-                result.decisions,
-                result.clusters,
-                result.final_selection,
-                result.final_selection_scores,
+                batch_result.decisions,
+                batch_result.clusters,
+                batch_result.final_selection,
+                batch_result.final_selection_scores,
             ),
         }
-        for result in batch_results
+        for batch_result in result.batch_results
     ]
     config.outputs.report_txt.parent.mkdir(parents=True, exist_ok=True)
     config.outputs.report_txt.write_text(text_report, encoding="utf-8")

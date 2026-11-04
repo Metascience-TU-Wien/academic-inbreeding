@@ -6,65 +6,36 @@ from __future__ import annotations
 
 import sys
 from dataclasses import asdict
-from pathlib import Path
 
 import pandas as pd
 
 from acib.name_disambiguation.config import NameDisambiguationConfig
 from acib.name_disambiguation.constants import (
-    ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS,
-    ARTICLE_REFERENCE_INPUT_COLUMNS,
     ORCID,
 )
 from acib.name_disambiguation.data import prepare_disambiguation_author_frame
-from acib.name_disambiguation.output import write_all_outputs
+from acib.name_disambiguation.input import (
+    NameDisambiguationInputs,
+    load_name_disambiguation_inputs,
+    read_dataframe as _read_dataframe,
+    validate_matching_artifact as _validate_matching_artifact,
+)
+from acib.name_disambiguation.output import (
+    collect_name_disambiguation_result,
+    save_name_disambiguation_results,
+)
 from acib.name_disambiguation.reporting import render_text_report
+from acib.name_disambiguation.results import NameDisambiguationResult
 from acib.name_disambiguation.service import disambiguate_batches
 from acib.name_matching.constants import MATCH_PRIORITY
 from acib.name_matching.workflow import add_inferred_asjc_columns
 from acib.schemas.authors import DisambiguationAuthorSchema
-from acib.schemas.matching import MatchingOutputSchema
-from acib.schemas.publications import (
-    ArticleAuthorEvidenceSchema,
-    ArticleReferenceSchema,
-)
 
 _RESEARCHER_EMAIL_COLUMN = "person_email"
 
-
-def validate_matching_artifact(path: str | Path) -> pd.DataFrame:
-    """Load and validate the output contract provided by name matching.
-
-    :param path: Resolved matcher output CSV.
-    :return: Validated researcher-to-author candidate rows.
-    :raises FileNotFoundError: If the matcher output does not exist.
-    :raises ValueError: If the file is unreadable or fails its schema contract.
-    """
-    artifact = Path(path)
-    if not artifact.is_file():
-        raise FileNotFoundError(f"Name-matching upstream artifact is missing: {artifact}")
-    try:
-        frame = pd.read_csv(artifact, low_memory=False)
-        return MatchingOutputSchema.validate(frame, lazy=True)
-    except Exception as exc:
-        raise ValueError(f"Invalid name-matching upstream artifact {artifact}: {exc}") from exc
-
-
-def read_dataframe(path: Path) -> pd.DataFrame:
-    """Read one configured CSV or Parquet input.
-
-    :param path: Input dataset path.
-    :return: Dataset rows without altering source column names.
-    :raises ValueError: If the file cannot be read or has an unsupported extension.
-    """
-    try:
-        if path.suffix.casefold() == ".parquet":
-            return pd.read_parquet(path)
-        if path.suffix.casefold() == ".csv":
-            return pd.read_csv(path, low_memory=False)
-    except (OSError, ValueError, ImportError) as exc:
-        raise ValueError(f"Could not read configured input {path}: {exc}") from exc
-    raise ValueError(f"Unsupported input format for {path}; expected CSV or Parquet")
+# Preserve the original workflow module's import paths for these public helpers.
+read_dataframe = _read_dataframe
+validate_matching_artifact = _validate_matching_artifact
 
 
 def prepare_scoring_author_frame(matching: pd.DataFrame) -> pd.DataFrame:
@@ -88,65 +59,65 @@ def prepare_scoring_author_frame(matching: pd.DataFrame) -> pd.DataFrame:
     return evidence
 
 
+def compute_name_disambiguation(
+    inputs: NameDisambiguationInputs,
+    config: NameDisambiguationConfig,
+) -> NameDisambiguationResult:
+    """Compute disambiguation results from validated in-memory inputs.
+
+    This function performs no file reads, writes, or console reporting. Construct
+    inputs with :func:`prepare_name_disambiguation_inputs` or
+    :func:`load_name_disambiguation_inputs`.
+
+    :param inputs: Validated matcher and publication-evidence tables.
+    :param config: Scoring thresholds and worker settings.
+    :return: Complete per-batch decisions and collected artifact tables.
+    """
+    scoring_frame = prepare_scoring_author_frame(inputs.matched_researchers)
+    authors = prepare_disambiguation_author_frame(scoring_frame)
+    authors = DisambiguationAuthorSchema.validate(authors, lazy=True)
+    batch_results = disambiguate_batches(
+        authors,
+        article_author_df=inputs.article_authors,
+        article_reference_df=inputs.article_references,
+        same_author_score_threshold=config.same_author_score_threshold,
+        possible_author_score_threshold=config.possible_author_score_threshold,
+        max_workers=config.max_workers,
+    )
+    return collect_name_disambiguation_result(batch_results)
+
+
 def run_name_disambiguation(
     config: NameDisambiguationConfig,
     *,
     overwrite: bool = False,
 ) -> pd.DataFrame:
-    """Run disambiguation from the configured matcher artifact and evidence tables.
+    """Run configured disambiguation and persist its legacy output artifacts.
+
+    This compatibility wrapper retains the original DataFrame return, optional
+    console reports, and configured persistence behavior.
 
     :param config: Resolved disambiguation paths and scoring options.
     :param overwrite: Permit replacing existing configured output artifacts.
-    :return: Validated final-selection rows, one per processed researcher batch.
+    :return: Final selections as one row per processed researcher batch.
     :raises FileNotFoundError: If an upstream or external input is absent.
     :raises ValueError: If an input fails validation.
     :raises FileExistsError: If outputs exist and overwrite is disabled.
     """
     config.check_output_paths(overwrite=overwrite)
-    config.check_external_inputs_exist()
-
-    matching = validate_matching_artifact(config.matching_output)
-    scoring_frame = prepare_scoring_author_frame(matching)
-    authors = prepare_disambiguation_author_frame(scoring_frame)
-    authors = DisambiguationAuthorSchema.validate(authors, lazy=True)
-
-    article_author_frame = read_dataframe(config.article_author_file_path)
-    article_author_frame = article_author_frame.loc[
-        :,
-        [
-            column
-            for column in ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS
-            if column in article_author_frame.columns
-        ],
-    ]
-    article_authors = ArticleAuthorEvidenceSchema.validate(article_author_frame, lazy=True)
-    article_reference_frame = read_dataframe(config.article_reference_file_path)
-    article_reference_frame = article_reference_frame.loc[
-        :,
-        [
-            column
-            for column in ARTICLE_REFERENCE_INPUT_COLUMNS
-            if column in article_reference_frame.columns
-        ],
-    ]
-    article_references = ArticleReferenceSchema.validate(article_reference_frame, lazy=True)
-    batch_results = disambiguate_batches(
-        authors,
-        article_author_df=article_authors,
-        article_reference_df=article_references,
-        same_author_score_threshold=config.same_author_score_threshold,
-        possible_author_score_threshold=config.possible_author_score_threshold,
-        max_workers=config.max_workers,
-    )
+    inputs = load_name_disambiguation_inputs(config)
+    result = compute_name_disambiguation(inputs, config)
     if config.enable_reporting:
-        for result in batch_results:
+        for batch_result in result.batch_results:
             sys.stdout.write(
                 render_text_report(
-                    result.decisions,
-                    result.clusters,
-                    result.final_selection,
-                    result.final_selection_scores,
+                    batch_result.decisions,
+                    batch_result.clusters,
+                    batch_result.final_selection,
+                    batch_result.final_selection_scores,
                 )
             )
-    write_all_outputs(batch_results, config, overwrite=overwrite)
-    return pd.DataFrame([asdict(result.final_selection) for result in batch_results])
+    save_name_disambiguation_results(result, config, overwrite=overwrite)
+    return pd.DataFrame(
+        [asdict(batch_result.final_selection) for batch_result in result.batch_results]
+    )

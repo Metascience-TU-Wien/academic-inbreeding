@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from acib.mobility.workflow import _read_dataframe
+from acib.mobility.input import _read_mobility_dataframe
 
 
 def test_csv_reader_uses_stable_inference_and_preserves_identifier_strings(
@@ -24,7 +24,7 @@ def test_csv_reader_uses_stable_inference_and_preserves_identifier_strings(
 
     with warnings.catch_warnings(record=True) as observed:
         warnings.simplefilter("always", pd.errors.DtypeWarning)
-        result = _read_dataframe(
+        result = _read_mobility_dataframe(
             path,
             dtype={
                 "person_functions": "string",

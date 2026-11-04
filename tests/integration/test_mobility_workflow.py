@@ -8,7 +8,8 @@ import pytest
 from shapely.geometry import Point
 
 from acib.mobility.config import MobilityConfig, MobilityOutputs
-from acib.mobility.workflow import run_mobility
+from acib.mobility.input import load_mobility_inputs
+from acib.mobility.workflow import compute_mobility, run_mobility
 
 
 def test_mobility_runs_independently_and_writes_only_configured_artifacts(
@@ -83,10 +84,12 @@ def test_mobility_runs_independently_and_writes_only_configured_artifacts(
         article_path: articles,
     }
     monkeypatch.setattr(
-        "acib.mobility.workflow._read_dataframe",
+        "acib.mobility.input._read_mobility_dataframe",
         lambda path, **_kwargs: frames[path].copy(),
     )
-    monkeypatch.setattr("acib.mobility.workflow._read_geodataframe", lambda _path: affiliations)
+    monkeypatch.setattr(
+        "acib.mobility.input._read_mobility_geodataframe", lambda _path: affiliations
+    )
 
     output_dir = tmp_path / "mobility-output"
     outputs = MobilityOutputs(directory=output_dir)
@@ -102,11 +105,28 @@ def test_mobility_runs_independently_and_writes_only_configured_artifacts(
         max_workers=1,
     )
 
+    inputs = load_mobility_inputs(config)
+    result = compute_mobility(inputs, config)
+    assert not output_dir.exists()
+    assert len(result.author_affiliations) > 0
+    assert len(result.author_summary) > 0
+    assert len(result.author_articles) > 0
+
     run_mobility(config)
 
     assert all(path.is_file() for path in outputs.all_paths())
     assert not (output_dir / "professor_author_profiles.csv").exists()
     assert not (output_dir / "author_affiliations_unique.csv").exists()
+    for frame, path in zip(
+        (
+            result.author_affiliations,
+            result.author_summary,
+            result.author_articles,
+        ),
+        outputs.all_paths(),
+        strict=True,
+    ):
+        assert path.read_text(encoding="utf-8") == frame.to_csv(index=False)
     summary = pd.read_csv(outputs.author_inbreeding_proxy)
     assert summary.loc[0, "sc_id"] == 1
     assert summary.loc[0, "title"] == "Full Prof."
