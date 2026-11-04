@@ -1,5 +1,13 @@
 # Changelog
 
+[v0.10.1] – 2026-11-04
+
+Fixed
+
+- Included the missing name-matching and name-disambiguation modules required
+  by workflow imports and test collection, fixing the GitHub Actions collection
+  failure from v0.10.0.
+
 [v0.10.0] – 2026-11-04
 
 Added
