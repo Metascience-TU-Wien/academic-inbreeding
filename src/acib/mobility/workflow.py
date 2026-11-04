@@ -7,34 +7,28 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import pandas as pd
 import structlog
 
 from acib.mobility.config import MobilityConfig
 from acib.mobility.inbreeding import (
+    InbreedingResult,
     analyze_academic_inbreeding,
     write_inbreeding_outputs,
 )
-from acib.mobility.input import enrich_authors_with_researcher_metadata
+from acib.mobility.input import (
+    MobilityInputs,
+    enrich_authors_with_researcher_metadata,
+    load_mobility_inputs,
+)
 from acib.mobility.professors import prepare_professor_author_profiles
 from acib.mobility.schemas import (
-    MobilityAffiliationSchema,
-    MobilityArticleAuthorSchema,
     MobilityAuthorAffiliationsOutputSchema,
     MobilityAuthorArticlesOutputSchema,
     MobilityAuthorInbreedingOutputSchema,
 )
-from acib.schemas.matching import MatchingOutputSchema
-from acib.schemas.researchers import ResearcherDisambiguationSelectionSchema
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _logger = structlog.getLogger(__name__)
-_RESEARCHER_METADATA_STRING_DTYPES = {
-    "person_functions": "string",
-    "institute_link": "string",
-    "person_location_link": "string",
-    "orcid": "string",
-}
 
 
 def run_mobility(config: MobilityConfig) -> None:
@@ -58,44 +52,39 @@ def run_mobility(config: MobilityConfig) -> None:
             "Refusing to write mobility outputs inside the read-only source repository: "
             + ", ".join(map(str, source_outputs))
         )
-    _logger.info(
-        "Loading mobility inputs",
-        author_file_path=str(config.authors),
-        researcher_metadata_file_path=(
-            str(config.researcher_metadata) if config.researcher_metadata is not None else None
-        ),
-        article_author_file_path=str(config.article_author),
-        author_affiliations_file_path=str(config.affiliations),
-    )
-    authors = ResearcherDisambiguationSelectionSchema.validate(
-        _read_dataframe(config.authors), lazy=True
-    )
-    articles = MobilityArticleAuthorSchema.validate(
-        _read_dataframe(config.article_author), lazy=True
-    )
-    affiliations = _read_geodataframe(config.affiliations)
-    geometry_column = affiliations.geometry.name
-    affiliation_attributes = pd.DataFrame(
-        affiliations.drop(columns=[geometry_column], errors="ignore")
-    )
-    MobilityAffiliationSchema.validate(affiliation_attributes, lazy=True)
-    authors = enrich_authors_with_researcher_metadata(
-        authors=authors,
-        researcher_metadata=MatchingOutputSchema.validate(
-            _read_dataframe(
-                config.researcher_metadata,
-                dtype=_RESEARCHER_METADATA_STRING_DTYPES,
-            ),
-            lazy=True,
-        ),
-    )
+    _logger.info("Loading mobility inputs", author_file_path=str(config.authors))
+    inputs = load_mobility_inputs(config)
     _logger.info(
         "Loaded mobility inputs",
-        author_rows=len(authors),
-        article_rows=len(articles),
-        affiliation_rows=len(affiliations),
+        author_rows=len(inputs.authors),
+        article_rows=len(inputs.articles),
+        affiliation_rows=len(inputs.affiliations),
+    )
+    result = compute_mobility(inputs, config)
+    _logger.info(
+        "Writing mobility outputs",
+        output_paths=[str(path) for path in config.outputs.all_paths()],
+    )
+    write_inbreeding_outputs(result, config.outputs)
+    _logger.info(
+        "Finished mobility run",
+        output_paths=[str(path) for path in config.outputs.all_paths()],
+        total_runtime_seconds=round(time.perf_counter() - started_at, 3),
     )
 
+
+def compute_mobility(inputs: MobilityInputs, config: MobilityConfig) -> InbreedingResult:
+    """Compute validated mobility results without writing files.
+
+    :param inputs: Loaded and validated mobility tables.
+    :param config: Scientific mobility options from the shared configuration.
+    :return: Validated in-memory mobility output tables.
+    :raises ValueError: If mobility algorithm parameters or output schemas are invalid.
+    """
+    authors = enrich_authors_with_researcher_metadata(
+        authors=inputs.authors,
+        researcher_metadata=inputs.researcher_metadata,
+    )
     resolved_authors = authors
     if config.enable_coaffiliated_professor_merge:
         resolved_authors = prepare_professor_author_profiles(
@@ -107,7 +96,6 @@ def run_mobility(config: MobilityConfig) -> None:
             input_author_rows=len(authors),
             professor_profile_rows=len(resolved_authors),
         )
-
     _logger.info(
         "Starting academic inbreeding analysis",
         max_workers=config.max_workers,
@@ -117,8 +105,8 @@ def run_mobility(config: MobilityConfig) -> None:
         min_publication_history_years=config.min_publication_history_years,
     )
     result = analyze_academic_inbreeding(
-        author_affiliations=affiliations,
-        articles=articles,
+        author_affiliations=inputs.affiliations,
+        articles=inputs.articles,
         resolved_authors=resolved_authors,
         enable_university_affiliation_inbreeding_detection=(
             config.enable_university_affiliation_inbreeding_detection
@@ -137,39 +125,4 @@ def run_mobility(config: MobilityConfig) -> None:
     for frame, schema in output_frames:
         if not frame.empty or len(frame.columns) > 0:
             schema.validate(frame, lazy=True)
-    _logger.info(
-        "Writing mobility outputs",
-        output_paths=[str(path) for path in config.outputs.all_paths()],
-    )
-    write_inbreeding_outputs(result, config.outputs)
-    _logger.info(
-        "Finished mobility run",
-        output_paths=[str(path) for path in config.outputs.all_paths()],
-        total_runtime_seconds=round(time.perf_counter() - started_at, 3),
-    )
-
-
-def _read_dataframe(path: Path, *, dtype: dict[str, str] | None = None) -> pd.DataFrame:
-    """Read CSV or Parquet input using source suffix-based dispatch.
-
-    :param path: Existing tabular input file.
-    :param dtype: Optional CSV column dtypes for mixed-format metadata.
-    :return: Loaded input dataframe.
-    """
-    if path.suffix == ".parquet":
-        return pd.read_parquet(path)
-    return pd.read_csv(path, low_memory=False, dtype=dtype)
-
-
-def _read_geodataframe(path: Path) -> pd.DataFrame:
-    """Read the configured GeoPackage without eagerly requiring GeoPandas.
-
-    :param path: Existing GeoPackage file.
-    :return: Geospatial affiliation rows.
-    :raises ImportError: If GeoPandas is not installed.
-    """
-    try:
-        import geopandas as gpd
-    except ImportError as exc:
-        raise ImportError("geopandas is required to read mobility affiliation files") from exc
-    return gpd.read_file(path)
+    return result

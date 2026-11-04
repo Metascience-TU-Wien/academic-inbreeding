@@ -1,5 +1,6 @@
 # Copyright © 2026 TU Wien
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -215,6 +216,23 @@ def test_clean_affiliations_uses_splink_chatgpt_after_parent() -> None:
     assert result.loc[1, "affiliation_id_parent"] == 60
     assert result.loc[2, "affiliation_id_parent"] == 80
     assert result.loc[3, "affiliation_id_parent"] == 60
+
+
+def test_clean_affiliations_skips_empty_parent_columns_without_dtype_warning() -> None:
+    affiliations = pd.DataFrame(
+        {
+            "affiliation_id": [1, 2],
+            "affiliation_id_parent": pd.Series([10, 20], dtype="int64"),
+        }
+    )
+
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", FutureWarning)
+        result = clean_affiliations(affiliations)
+
+    assert not [warning for warning in observed if issubclass(warning.category, FutureWarning)]
+    assert result["affiliation_id_parent"].tolist() == [10, 20]
+    assert result["affiliation_id_parent"].dtype == "int64"
 
 
 def test_analyze_authors_adds_academic_age_years_to_summary() -> None:

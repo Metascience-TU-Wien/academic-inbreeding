@@ -10,7 +10,9 @@ import pytest
 
 from acib.constants import AUTHOR_ID, RESEARCHER_ID
 from acib.name_matching.config import NameMatchingConfig, NameMatchingOutputs
-from acib.name_matching.workflow import run_name_matching
+from acib.name_matching.input import prepare_name_matching_inputs
+from acib.name_matching.output import save_name_matching_results
+from acib.name_matching.workflow import compute_name_matching, run_name_matching
 
 
 def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Path) -> None:
@@ -124,6 +126,70 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
     assert fallback["researcher_name"] == "jones, maria"
     assert fallback["author_name"] == "jones, maria"
     assert output_path.stat().st_size > 0
+
+
+def test_compute_name_matching_is_in_memory_and_persistence_is_explicit(
+    tmp_path: Path,
+) -> None:
+    researchers = pd.DataFrame(
+        [
+            {
+                "sc_id": 11,
+                "person_name": "Anna",
+                "person_surname": "Smith",
+                "person_fullname": "Anna Smith",
+                "university_name": "TU Wien",
+                "source_note": "preserved",
+                "scopus_author_id": float("nan"),
+            }
+        ]
+    )
+    authors = pd.DataFrame(
+        [
+            {
+                "author_id": 101,
+                "eid": "E-11",
+                "author_name": "smith, anna",
+                "indexed_name": "Smith A.",
+                "initials": "A.",
+                "given_name": "Anna",
+                "surname": "Smith",
+                "publication_range": "2020-2024",
+                "name_variants": "[]",
+                "subject_areas": "[]",
+                "affiliation_id": 60018163,
+                "affiliation_id_parent": "60018163.0",
+            }
+        ]
+    )
+    inputs = prepare_name_matching_inputs(researchers, authors)
+    output_directory = tmp_path / "not-created-by-computation"
+    config = NameMatchingConfig(
+        researcher_file_path=tmp_path / "unused-researchers.csv",
+        candidate_authors_file=tmp_path / "unused-authors.csv",
+        outputs=NameMatchingOutputs(directory=output_directory),
+        enable_organisation_filter=False,
+        existing_scopus_author_id_column="scopus_author_id",
+    )
+
+    result = compute_name_matching(inputs, config)
+
+    assert result.resolved_researchers[[RESEARCHER_ID, AUTHOR_ID, "priority"]].to_dict(
+        "records"
+    ) == [{RESEARCHER_ID: 11, AUTHOR_ID: 101, "priority": 1}]
+    assert result.resolved_researchers.loc[0, "source_note"] == "preserved"
+    assert result.matching_details is not None
+    assert not output_directory.exists()
+
+    save_name_matching_results(result, config)
+    persisted = pd.read_csv(config.outputs.resolved_researchers)
+    pd.testing.assert_frame_equal(
+        persisted[[RESEARCHER_ID, AUTHOR_ID, "priority", "source_note"]],
+        result.resolved_researchers[[RESEARCHER_ID, AUTHOR_ID, "priority", "source_note"]],
+        check_dtype=False,
+    )
+    with pytest.raises(FileExistsError, match="overwrite=True"):
+        save_name_matching_results(result, config)
 
 
 @pytest.mark.parametrize(

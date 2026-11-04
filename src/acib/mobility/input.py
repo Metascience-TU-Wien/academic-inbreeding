@@ -9,7 +9,9 @@ import hashlib
 import math
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from math import ceil
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -30,6 +32,7 @@ from acib.constants import (
     SUBJECT_AREAS,
     UNIVERSITY_NAME,
 )
+from acib.mobility.config import MobilityConfig
 from acib.mobility.constants import (
     AFFILIATION_PREFERRED_NAME,
     ARTICLE_AFFILIATION_ID,
@@ -42,6 +45,7 @@ from acib.mobility.constants import (
     PUBLICATION_GENERAL_ASJC_SUBJECT_AREAS,
     UNMAPPED_AFFILIATION_ID,
 )
+from acib.mobility.schemas import MobilityAffiliationSchema, MobilityArticleAuthorSchema
 from acib.name_disambiguation.asjc import asjc_entry, level_two_asjc_code
 from acib.name_disambiguation.constants import (
     AUTHOR_IDS as ARTICLE_AUTHOR_ID,
@@ -51,6 +55,104 @@ from acib.name_disambiguation.constants import (
 )
 from acib.name_disambiguation.parsing import parse_subject_areas
 from acib.name_matching.constants import NAME
+from acib.schemas.matching import MatchingOutputSchema
+from acib.schemas.researchers import ResearcherDisambiguationSelectionSchema
+
+_RESEARCHER_METADATA_STRING_DTYPES = {
+    "person_functions": "string",
+    "institute_link": "string",
+    "person_location_link": "string",
+    "orcid": "string",
+}
+_PARENT_AFFILIATION_PRECEDENCE = (
+    AFFILIATION_ID_PARENT_CHATGPT,
+    AFFILIATION_ID_PARENT,
+    AFFILIATION_PARENT_SOURCE,
+    AFFILIATION_ID_PARENT_SPLINK_CHATGPT,
+    AFFILIATION_UMBRELLA_ID,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MobilityInputs:
+    """Validated in-memory inputs for mobility analysis.
+
+    :param authors: Final researcher-author selections.
+    :param researcher_metadata: Matching output with researcher metadata.
+    :param articles: Article-author evidence rows.
+    :param affiliations: Geospatial affiliation crosswalk.
+    """
+
+    authors: pd.DataFrame
+    researcher_metadata: pd.DataFrame
+    articles: pd.DataFrame
+    affiliations: pd.DataFrame
+
+
+def load_mobility_inputs(config: MobilityConfig) -> MobilityInputs:
+    """Load configured mobility inputs and validate their stage contracts.
+
+    :param config: Resolved canonical mobility paths.
+    :return: Validated in-memory mobility inputs.
+    :raises FileNotFoundError: If any configured input is absent.
+    :raises ImportError: If GeoPandas is unavailable for the GeoPackage input.
+    """
+    config.check_input_paths()
+    authors = ResearcherDisambiguationSelectionSchema.validate(
+        _read_mobility_dataframe(config.authors), lazy=True
+    )
+    researcher_metadata = MatchingOutputSchema.validate(
+        _read_mobility_dataframe(
+            config.researcher_metadata,
+            dtype=_RESEARCHER_METADATA_STRING_DTYPES,
+        ),
+        lazy=True,
+    )
+    articles = MobilityArticleAuthorSchema.validate(
+        _read_mobility_dataframe(config.article_author), lazy=True
+    )
+    affiliations = _read_mobility_geodataframe(config.affiliations)
+    affiliation_attributes = pd.DataFrame(
+        affiliations.drop(columns=[affiliations.geometry.name], errors="ignore")
+    )
+    MobilityAffiliationSchema.validate(affiliation_attributes, lazy=True)
+    return MobilityInputs(
+        authors=authors,
+        researcher_metadata=researcher_metadata,
+        articles=articles,
+        affiliations=affiliations,
+    )
+
+
+def _read_mobility_dataframe(
+    path: Path,
+    *,
+    dtype: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Read a configured mobility CSV or Parquet table.
+
+    :param path: Input file path.
+    :param dtype: Optional CSV column dtypes.
+    :return: Loaded table.
+    """
+    if path.suffix == ".parquet":
+        return pd.read_parquet(path)
+    return pd.read_csv(path, low_memory=False, dtype=dtype)
+
+
+def _read_mobility_geodataframe(path: Path) -> pd.DataFrame:
+    """Read the configured affiliation GeoPackage.
+
+    :param path: GeoPackage path.
+    :return: Geospatial affiliation records.
+    :raises ImportError: If GeoPandas is unavailable.
+    """
+    try:
+        import geopandas as gpd
+    except ImportError as exc:
+        raise ImportError("geopandas is required to read mobility affiliation files") from exc
+    return gpd.read_file(path)
+
 
 _HISTORICAL_AUTHOR_ID = "historical_author_id"
 _CURRENT_AUTHOR_ID = "current_author_id"
@@ -362,22 +464,18 @@ def clean_affiliations(affiliations: pd.DataFrame) -> pd.DataFrame:
         AFFILIATION_UMBRELLA_ID,
     ):
         ensure_column(result, column, np.nan)
-    precedence = (
-        AFFILIATION_ID_PARENT_CHATGPT,
-        AFFILIATION_PARENT_SOURCE,
-        AFFILIATION_ID_PARENT_SPLINK_CHATGPT,
-        AFFILIATION_UMBRELLA_ID,
-        AFFILIATION_ID_PARENT,
-    )
-    for column in precedence:
+    for column in _PARENT_AFFILIATION_PRECEDENCE:
         result[column] = pd.to_numeric(result[column], errors="coerce")
-    result[AFFILIATION_ID_PARENT] = (
-        result[AFFILIATION_ID_PARENT_CHATGPT]
-        .combine_first(result[AFFILIATION_ID_PARENT])
-        .combine_first(result[AFFILIATION_PARENT_SOURCE])
-        .combine_first(result[AFFILIATION_ID_PARENT_SPLINK_CHATGPT])
-        .combine_first(result[AFFILIATION_UMBRELLA_ID])
-    )
+    nonempty_parent_columns = [
+        result[column] for column in _PARENT_AFFILIATION_PRECEDENCE if result[column].notna().any()
+    ]
+    if nonempty_parent_columns:
+        parent_ids = nonempty_parent_columns[0]
+        for candidate_ids in nonempty_parent_columns[1:]:
+            parent_ids = parent_ids.combine_first(candidate_ids)
+    else:
+        parent_ids = result[_PARENT_AFFILIATION_PRECEDENCE[0]]
+    result[AFFILIATION_ID_PARENT] = parent_ids
     if AFFILIATION_PREFERRED_NAME not in result:
         result[AFFILIATION_PREFERRED_NAME] = result.get(NAME)
     else:

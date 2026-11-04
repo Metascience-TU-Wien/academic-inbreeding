@@ -14,6 +14,7 @@ from acib.name_matching.config import (
 )
 from acib.name_matching.constants import SCOPUS_ID_MAPPING
 from acib.name_matching.workflow import (
+    add_inferred_asjc_columns,
     prepare_scopus_author_affiliations,
     split_researchers_with_existing_scopus_ids,
 )
@@ -94,6 +95,27 @@ def test_prepare_scopus_author_affiliations_requires_affiliation_id() -> None:
 
 def test_scopus_mapping_contains_expected_university_ids() -> None:
     assert SCOPUS_ID_MAPPING["TU Wien"] == [60018163]
+
+
+def test_inferred_asjc_maps_organization_and_preserves_existing_codes() -> None:
+    researchers = pd.DataFrame(
+        [
+            {"sc_id": 1, "organization": "Fakultät Wirtschaft"},
+            {
+                "sc_id": 2,
+                "organization": "Fakultät Wirtschaft",
+                "inferred_asjc_codes": "2700",
+                "inferred_asjc_labels": "Medicine",
+            },
+        ]
+    )
+
+    result = add_inferred_asjc_columns(researchers)
+
+    assert result.loc[0, "inferred_asjc_codes"] == "1400"
+    assert result.loc[0, "inferred_asjc_labels"] == "Business, Management and Accounting"
+    assert result.loc[1, "inferred_asjc_codes"] == "2700"
+    assert result.loc[1, "inferred_asjc_labels"] == "Medicine"
 
 
 def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Path) -> None:
