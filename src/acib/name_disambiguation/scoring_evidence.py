@@ -771,7 +771,10 @@ def combined_coauthor_names(author: AuthorRecord, context: ScoringContext | None
     if context and context.publication_index is not None:
         values |= context.publication_index.author_coauthor_names.get(author.author_id, set())
     values -= self_identity_tokens(author)
-    return values
+    own_name_signatures = _self_identity_name_signatures(author)
+    return {
+        value for value in values if _normalized_name_signature(value) not in own_name_signatures
+    }
 
 
 def combined_grant_numbers(author: AuthorRecord, context: ScoringContext | None) -> set[str]:
@@ -881,3 +884,34 @@ def self_identity_tokens(author: AuthorRecord) -> set[str]:
             }
         )
     return {token for token in tokens if token}
+
+
+def _self_identity_name_signatures(author: AuthorRecord) -> set[frozenset[str]]:
+    """Build order-independent signatures for the author's name forms.
+
+    Publication author names may use given-name-first order while profile names
+    use surname-first order. Comparing normalized token sets excludes the same
+    person in either order without treating a partial name overlap as identity.
+
+    :param author: Parsed author profile.
+    :return: Nonempty name-token signatures for the author and variants.
+    """
+    names = {author.name, author.canonical_name, author.indexed_name}
+    for variant in author.name_variants:
+        names.update(
+            {
+                f"{variant.surname}, {variant.given_name}",
+                variant.canonical_full_name,
+                variant.indexed_name,
+            }
+        )
+    return {signature for name in names if (signature := _normalized_name_signature(name))}
+
+
+def _normalized_name_signature(value: str) -> frozenset[str]:
+    """Return normalized name tokens without depending on their order.
+
+    :param value: Name in any supported word order.
+    :return: Normalized tokens with word order ignored.
+    """
+    return frozenset(normalize_text(value).split())

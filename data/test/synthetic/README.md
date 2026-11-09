@@ -1,18 +1,18 @@
 # Synthetic pipeline fixtures
 
 These files contain fictional people, author profiles, publications, and
-citations. They are small illustrative inputs, not research data. One
-institution mapping value is intentionally real for the current-affiliation
-selection example; that exception is described below.
+citations. They are small illustrative inputs, not research data. The real TU
+Wien mapping is intentionally used for current-affiliation and mobility examples;
+the people and publication records remain fictional.
 
 ## Files and relationships
 
 - `researchers.csv`: 19 fictional researcher records, including missing matches,
   a pre-existing Scopus author ID, and academic titles for selected researchers.
-- `scopus_authors.csv`: 29 candidate profile/publication rows. EIDs connect to
-  `article_authors.csv`; repeated names on different author IDs and affiliations
-  intentionally create ambiguous candidates. Three selected professor profiles
-  have multiple dated publication rows for mobility histories.
+- `scopus_authors.csv`: 21 candidate profiles with one row per unique author ID.
+  EIDs connect to `article_authors.csv`; repeated names on different author IDs
+  and affiliations intentionally create ambiguous candidates. Publication
+  histories for mobility are stored in `article_authors.csv`.
 - `article_authors.csv`: one article-author evidence row for each synthetic EID,
   with author IDs, author-aligned affiliation IDs, cover dates, author names,
   and subject-area metadata. Author and affiliation ID lists use semicolons as
@@ -35,15 +35,16 @@ the existing current-affiliation selection rule; the researcher, author
 profiles, and publication records are fictional. The second profile has a
 different synthetic affiliation and non-overlapping publication history.
 
-The fictional organizations are intentionally absent from the production
-organization mapping. The mobility example therefore disables university-
-mapping-based inbreeding detection and uses the configured first/last affiliation
-proxy. Two synthetic publication histories span three years and one spans two;
-under this proxy, `min_publication_history_years` is descriptive and does not
-gate classification. Examples that use `match_researchers` directly should
-disable organization filtering; workflow examples can separately illustrate
-existing-ID passthrough and configuration behavior. The fixtures are sufficient
-for the synthetic mobility stage, but not for downstream impact analyses.
+Most fictional organizations are absent from the production university mapping.
+The mobility example enables university-affiliation detection and uses the real
+TU Wien affiliation ID for Ada Lovelace and Jamie Lee. Their fictional
+publication histories include TU Wien in both the configured first-two-year
+window and their latest publication, demonstrating two positive inbreeding
+proxies. John Doe's fictional institution is unmapped and remains unclassified.
+Examples that use `match_researchers` directly should disable organization
+filtering; workflow examples can separately illustrate existing-ID passthrough
+and configuration behavior. The fixtures are sufficient for the synthetic
+mobility stage, but not for downstream impact analyses.
 
 `config/pipeline_synthetic.toml` is the canonical example configuration for
 the synthetic matching, disambiguation, and mobility workflows. It declares

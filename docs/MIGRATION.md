@@ -1,5 +1,24 @@
 # Migration plan and results
 
+## Approved disambiguation self-name exclusion correction
+
+- The user requested a reliable correction after investigation showed that
+  publication author names could include a candidate's own name as coauthor
+  evidence when name order differed between publication data and author-profile
+  metadata (for example, `Max Mustermann` versus `Mustermann, Max`).
+- Coauthor-name matching now excludes full-name token signatures irrespective
+  of token order, while retaining exact normalized self-identity exclusions.
+  This intentionally removes false-positive shared-coauthor evidence; it does
+  not change identifier-based coauthor matching or scoring weights.
+- Added a regression case using the notebook's exact author IDs, names, and
+  publication author lists. `uv run pytest tests/name_disambiguation/ -q`:
+  **73 passed**. `uv run pytest
+  tests/integration/test_name_disambiguation_workflow.py -q`: **2 passed**.
+- A direct source-versus-target check using those same records reproduced the
+  original false evidence (`shared coauthors (1): max mustermann`) and confirmed
+  that the corrected target emits no shared-coauthor component. Ruff and all
+  configured pre-commit hooks passed on the changed files.
+
 ## Approved de-identified statistical-matching input
 
 - The user approved allowing statistical matching to consume the anonymized

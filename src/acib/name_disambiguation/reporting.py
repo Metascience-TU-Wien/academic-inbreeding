@@ -44,6 +44,7 @@ from acib.name_disambiguation.constants import (
     RIGHT_AUTHOR_ID,
     RIGHT_CANONICAL_NAME,
     RIGHT_NAME,
+    TEMPORAL_HARD_CONFLICT_LABELS,
     UNIVERSITY_AFFILIATION_IDS,
 )
 from acib.name_disambiguation.models import FinalAuthorSelection
@@ -115,10 +116,12 @@ def render_text_report(
         ]
     )
     for decision in decisions.itertuples(index=False):
+        decision_label = str(getattr(decision, DECISION_LABEL))
+        components = getattr(decision, COMPONENTS)
         lines.extend(
             [
                 (
-                    f"[{getattr(decision, DECISION_LABEL)}] {getattr(decision, LEFT_NAME)} "
+                    f"[{decision_label}] {getattr(decision, LEFT_NAME)} "
                     f"({getattr(decision, LEFT_AUTHOR_ID)}) "
                     f"<-> {getattr(decision, RIGHT_NAME)} ({getattr(decision, RIGHT_AUTHOR_ID)})"
                 ),
@@ -132,14 +135,22 @@ def render_text_report(
                 ),
             ]
         )
-        for component in summarize_table2_components(getattr(decision, COMPONENTS)):
+        for component in summarize_table2_components(components):
             lines.append(
                 f"  {component['weight']:+.2f} {component['label']}: {component['reason']}"
             )
-        extras = remaining_components(getattr(decision, COMPONENTS))
+        extras = remaining_components(components)
         if extras:
             lines.append("  additional_scoring:")
             lines.extend(f"  {c['weight']:+.2f} {c['label']}: {c['reason']}" for c in extras)
+        if decision_label == "distinct" and any(
+            component["label"] in TEMPORAL_HARD_CONFLICT_LABELS for component in components
+        ):
+            lines.append(
+                "  decision_explanation=The raw score summarizes matching evidence, but the "
+                "hard publication-history safeguard takes precedence, so these profiles "
+                "remain distinct."
+            )
         lines.append("")
     lines.extend(["Clusters", "-" * 8])
     selected_ids = set(final_selection.selected_author_ids) if final_selection else set()

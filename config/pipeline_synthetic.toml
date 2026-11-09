@@ -26,11 +26,14 @@ directory = "data/output/synthetic/name_disambiguation"
 
 # The synthetic mobility fixtures include their own fictional GeoPackage map.
 [mobility]
-enable_university_affiliation_inbreeding_detection = false
+enable_university_affiliation_inbreeding_detection = true
 enable_coaffiliated_professor_merge = true
 professor_title_pattern = "prof"
-min_publication_history_years = 3
-max_workers = 1
+early_affiliation_method = "first_n_years"
+first_affiliation_publication_count = 3
+first_affiliation_year_count = 2
+min_publication_history_years = 0
+max_workers = 5
 
 [mobility.outputs]
 directory = "data/output/synthetic/mobility"
