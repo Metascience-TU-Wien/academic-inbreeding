@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Fixed
+
+- Prevented a candidate author's own name from being counted as shared-coauthor
+  evidence when publication and profile names use different word orders.
+
 [v0.10.1] – 2026-11-04
 
 Fixed

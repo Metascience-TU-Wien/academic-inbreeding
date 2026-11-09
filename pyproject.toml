@@ -62,5 +62,8 @@ module-name = "acib"
 profile = "black"
 combine_as_imports = true
 
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+
 [tool.ruff.lint.isort]
 combine-as-imports = true

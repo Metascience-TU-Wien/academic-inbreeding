@@ -637,6 +637,51 @@ def test_article_journal_address_and_coauthor_name_evidence() -> None:
     assert "shared_coauthors" in component_labels(by_name)
 
 
+def test_publication_name_word_order_does_not_count_author_as_shared_coauthor() -> None:
+    left = author_from_row(
+        {
+            "author_id": "990000001",
+            "name": "Mustermann, Max",
+            "surname": "Mustermann",
+            "given_name": "Max",
+            "indexed_name": "Mustermann, Max",
+            "initials": "M",
+            "name_variants": "[]",
+            "subject_areas": "[]",
+        }
+    )
+    right = author_from_row(
+        {
+            "author_id": "990000003",
+            "name": "Mustermann, Max",
+            "surname": "Mustermann",
+            "given_name": "Max",
+            "indexed_name": "Mustermann, Max",
+            "initials": "M",
+            "name_variants": "[]",
+            "subject_areas": "[]",
+        }
+    )
+    articles = pd.DataFrame(
+        [
+            {
+                "eid": "SYN-PUB-001",
+                "author_ids": "990000001;990010001",
+                "author_names": '["Max Mustermann", "Taylor Example"]',
+            },
+            {
+                "eid": "SYN-PUB-003",
+                "author_ids": "990000003;990010002",
+                "author_names": '["Max Mustermann", "Morgan Sample"]',
+            },
+        ]
+    )
+
+    decision = score_pair(left, right, context=build_scoring_context(articles))
+
+    assert "shared_coauthors" not in component_labels(decision)
+
+
 def test_grouped_article_rows_and_id_name_overlap_are_not_double_counted() -> None:
     left = make_author("1", "Thomas", "T")
     right = make_author("2", "Thomas", "T")
