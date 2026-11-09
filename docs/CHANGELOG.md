@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Added
+
+- Synthetic mobility examples for university-affiliation inbreeding detection,
+  with mapped TU Wien affiliations producing positive proxy cases for Ada and
+  Jamie. The mobility notebook now displays only positive proxy profiles and
+  omits requested columns that are absent from the result schema.
+
+Changed
+
+- Added an explanation to disambiguation reports when a hard publication-history
+  safeguard overrides the raw matching score and keeps profiles distinct.
+
 Fixed
 
 - Prevented a candidate author's own name from being counted as shared-coauthor

@@ -2,7 +2,7 @@ sc_id,person_fullname,person_title,person_name,person_surname,university_name,or
 990001,Max Mustermann,,Max,Mustermann,Example Technical Institute,Example Faculty of Computing,1712,Software,,true
 990002,John Doe,Ass.-Prof. Dr.,John,Doe,Example Technical Institute,Example Faculty of Chemistry,1600,Chemistry,,true
 990003,Riley Unmatched,,Riley,Unmatched,Example Technical Institute,Example Faculty of Arts,1200,Arts and Humanities,,true
-990004,Ada Lovelace,Univ.-Prof. Dr.,Ada,Lovelace,Example Technical Institute,Example Faculty of Computing,1712,Software,,true
+990004,Ada Lovelace,Univ.-Prof. Dr.,Ada,Lovelace,TU Wien,Example Faculty of Computing,1712,Software,,true
 990005,Noor Al-Hassan,,Noor,Al-Hassan,Example Medical Institute,Example Faculty of Medicine,2700,Medicine,,true
 990006,Zoë García,,Zoë,García,Example Arts College,Example Faculty of Languages,1200,Arts and Humanities,,true
 990007,Jean-Luc Martin,,Jean-Luc,Martin,Example Technical Institute,Example Faculty of Engineering,2200,Engineering,,true
@@ -12,7 +12,7 @@ sc_id,person_fullname,person_title,person_name,person_surname,university_name,or
 990011,Casey Morgan,,Casey,Morgan,Example Technical Institute,Example Faculty of Computing,1712,Software,,true
 990012,Taylor NoCandidate,,Taylor,NoCandidate,Example Arts College,Example Faculty of Arts,1200,Arts and Humanities,,true
 990013,Priya Raman,,Priya,Raman,Example Medical Institute,Example Faculty of Medicine,2700,Medicine,990000013,true
-990014,Jamie Lee,FH-Prof. Dr.,Jamie,Lee,Example Social Science Institute,Example Faculty of Sociology,3300,Social Sciences,,true
+990014,Jamie Lee,FH-Prof. Dr.,Jamie,Lee,TU Wien,Example Faculty of Sociology,3300,Social Sciences,,true
 990015,Morgan Chen,,Morgan,Chen,Example Technical Institute,Example Faculty of Engineering,2200,Engineering,,true
 990016,Elena Petrova,,Elena,Petrova,Example Arts College,Example Faculty of Languages,1200,Arts and Humanities,,true
 990017,Sam Rivera,,Sam,Rivera,Example Medical Institute,Example Faculty of Medicine,2700,Medicine,,true
