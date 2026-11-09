@@ -8,10 +8,6 @@ producer's `[stage.outputs].directory`. Each output table accepts only the
 directory; filenames are fixed by stage. See [Architecture](ARCHITECTURE.md)
 for path ownership, dependencies, and artifact-contract rules.
 
-The checked-in examples are [`../config/pipeline.toml`](../config/pipeline.toml)
-and [`../config/pipeline_synthetic.toml`](../config/pipeline_synthetic.toml).
-The latter supports synthetic matching and disambiguation, not the complete
-mobility/regression analysis.
 
 ## External inputs: `[data]`
 
