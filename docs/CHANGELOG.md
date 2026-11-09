@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+[v0.10.2] – 2026-11-09
+
 Added
 
 - Synthetic mobility examples for university-affiliation inbreeding detection,
