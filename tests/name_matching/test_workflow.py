@@ -118,6 +118,66 @@ def test_inferred_asjc_maps_organization_and_preserves_existing_codes() -> None:
     assert result.loc[1, "inferred_asjc_labels"] == "Medicine"
 
 
+@pytest.mark.parametrize(
+    ("organization", "expected_codes"),
+    [
+        (
+            "Applied Life Sciences",
+            "1300,1500,1600,1700,2300,2400,2500",
+        ),
+        ("Bauen und Gestalten", "2100,2200,2300"),
+        ("Gesundheitswissenschaften", "2700,2900,3600"),
+        ("Angewandte Pflegewissenschaft", "2700,2900,3600"),
+        ("Sozialwissenschaften", "1400,3200,3300"),
+        ("Technik", "1700,2100,2200,2500"),
+        (
+            "Verwaltung, Wirtschaft, Sicherheit, Politik",
+            "1400,1800,2000,3300",
+        ),
+    ],
+)
+def test_fh_campus_wien_department_asjc_inference(organization: str, expected_codes: str) -> None:
+    researcher = pd.DataFrame(
+        [{"sc_id": 1, "organization": f'[{{"type":"unordered","value":["{organization}"]}}]'}]
+    )
+
+    result = add_inferred_asjc_columns(researcher)
+
+    assert result.loc[0, "inferred_asjc_codes"] == expected_codes
+
+
+def test_fh_department_codes_union_and_deduplicate_across_organizations() -> None:
+    researcher = pd.DataFrame(
+        [
+            {
+                "sc_id": 1,
+                "organization": (
+                    '[{"type":"unordered","value":' '["Applied Life Sciences","Technik"]}]'
+                ),
+            }
+        ]
+    )
+
+    result = add_inferred_asjc_columns(researcher)
+
+    assert result.loc[0, "inferred_asjc_codes"] == ("1300,1500,1600,1700,2100,2200,2300,2400,2500")
+
+
+def test_fh_department_without_organization_gets_no_asjc_evidence() -> None:
+    researcher = pd.DataFrame([{"sc_id": 1, "organization": "[]"}])
+
+    result = add_inferred_asjc_columns(researcher)
+
+    assert result.loc[0, "inferred_asjc_codes"] == ""
+    assert result.loc[0, "inferred_asjc_labels"] == ""
+
+
+def test_pipeline_v2_uses_updated_staff_records_as_researcher_input() -> None:
+    config = load_name_matching_config(PROJECT_ROOT / "config" / "pipeline_v2.toml")
+
+    assert config.researcher_file_path == PROJECT_ROOT / "data/input/staff_records.csv"
+
+
 def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     researcher_path = tmp_path / "researchers.csv"
