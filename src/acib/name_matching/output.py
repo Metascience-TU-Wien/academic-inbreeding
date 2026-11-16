@@ -9,7 +9,7 @@ from pathlib import Path
 from acib.constants import AFFILIATION_ID, AFFILIATION_ID_PARENT
 from acib.name_matching.config import NameMatchingConfig
 from acib.name_matching.results import NameMatchingResult
-from acib.schemas import MatchingOutputSchema
+from acib.schemas import MatchingOutputSchema, OpenAlexMatchingOutputSchema
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -30,12 +30,17 @@ def save_name_matching_results(
     """
     output_path = validate_name_matching_output_path(config, overwrite=overwrite)
 
-    output = MatchingOutputSchema.validate(result.resolved_researchers, lazy=True)
+    output = (
+        MatchingOutputSchema.validate(result.resolved_researchers, lazy=True)
+        if config.source == "scopus"
+        else OpenAlexMatchingOutputSchema.validate(result.resolved_researchers, lazy=True)
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     serialized_output = output.copy()
-    for column in (AFFILIATION_ID, AFFILIATION_ID_PARENT):
-        if column in serialized_output:
-            serialized_output[column] = serialized_output[column].astype("Float64")
+    if config.source == "scopus":
+        for column in (AFFILIATION_ID, AFFILIATION_ID_PARENT):
+            if column in serialized_output:
+                serialized_output[column] = serialized_output[column].astype("Float64")
     serialized_output.to_csv(output_path, index=False, encoding=config.encoding)
 
 

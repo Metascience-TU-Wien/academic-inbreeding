@@ -102,3 +102,25 @@ class MatchingOutputSchema(pa.DataFrameModel):
 
         strict = False
         coerce = False
+
+
+class OpenAlexMatchingOutputSchema(pa.DataFrameModel):
+    """Validate resolved researcher-to-OpenAlex-author match records.
+
+    OpenAlex author IDs are stable URL strings and are never coerced to the
+    integer representation used by the Scopus output contract.
+    """
+
+    sc_id: Series[int] = pa.Field(alias=RESEARCHER_ID, nullable=False)
+    author_id: Series[str] = pa.Field(alias=AUTHOR_ID, nullable=False)
+    priority: Series[int] = pa.Field(
+        alias=MATCH_PRIORITY,
+        nullable=False,
+        isin=sorted(MATCH_PRIORITY_VALUES),
+    )
+
+    class Config:
+        """Preserve other researcher and source metadata."""
+
+        strict = False
+        coerce = False

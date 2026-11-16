@@ -35,6 +35,7 @@ from acib.name_matching.constants import (
     MATCH_PRIORITY,
     MATCHING_OUTPUT_COLUMNS,
     NAME,
+    OPENALEX_ID_MAPPING,
     PARENT_AFFILIATION_COLUMNS,
     PERSON_FULLNAME,
     RESEARCHER_GIVEN_NAME,
@@ -54,6 +55,7 @@ from acib.name_matching.output import (
 from acib.name_matching.results import NameMatchingInputs, NameMatchingResult
 from acib.schemas import (
     MatchingOutputSchema,
+    OpenAlexMatchingOutputSchema,
 )
 
 _logger = structlog.getLogger(__name__)
@@ -286,6 +288,7 @@ def compute_name_matching(
         inputs.researchers,
         inputs.candidate_authors,
         researcher_output_metadata=inputs.researcher_output_metadata,
+        source=config.source,
     )
     researcher_metadata = inputs.researchers
     if config.enable_organisation_filter and UNIVERSITY_NAME not in researcher_metadata:
@@ -318,19 +321,25 @@ def compute_name_matching(
         candidate_author_rows=len(authors),
     )
     pre_resolved = researchers.iloc[0:0].copy()
-    researchers, pre_resolved = split_researchers_with_existing_scopus_ids(
-        researchers, config.existing_scopus_author_id_column
+    existing_scopus_id_column = (
+        config.existing_scopus_author_id_column if config.source == "scopus" else None
     )
-    if config.existing_scopus_author_id_column is not None:
+    researchers, pre_resolved = split_researchers_with_existing_scopus_ids(
+        researchers, existing_scopus_id_column
+    )
+    if existing_scopus_id_column is not None:
         _logger.info(
             "Skipping researchers with existing Scopus author IDs",
             skipped_rows=len(pre_resolved),
-            existing_scopus_author_id_column=config.existing_scopus_author_id_column,
+            existing_scopus_author_id_column=existing_scopus_id_column,
         )
-    authors = prepare_scopus_author_affiliations(authors)
-    org_mapping: dict[str, list[int | str]] = {
-        organization: list(ids) for organization, ids in SCOPUS_ID_MAPPING.items()
-    }
+    if config.source == "scopus":
+        authors = prepare_scopus_author_affiliations(authors)
+        org_mapping: dict[str, list[int | str]] = {
+            organization: list(ids) for organization, ids in SCOPUS_ID_MAPPING.items()
+        }
+    else:
+        org_mapping = {organization: list(ids) for organization, ids in OPENALEX_ID_MAPPING.items()}
     pre_resolved = pre_resolved.loc[
         :,
         [column for column in (RESEARCHER_ID, AUTHOR_ID, MATCH_PRIORITY) if column in pre_resolved],
@@ -396,11 +405,19 @@ def compute_name_matching(
     output.loc[output[MATCH_PRIORITY].eq(0), "initials"] = False
     for column in MATCHING_OUTPUT_COLUMNS:
         if column not in output:
-            if output.empty and column in {RESEARCHER_ID, AUTHOR_ID, MATCH_PRIORITY}:
+            if output.empty and column in {RESEARCHER_ID, MATCH_PRIORITY}:
+                output[column] = pd.Series(index=output.index, dtype="int64")
+            elif output.empty and column == AUTHOR_ID and config.source == "openalex":
+                output[column] = pd.Series(index=output.index, dtype="string")
+            elif output.empty and column == AUTHOR_ID:
                 output[column] = pd.Series(index=output.index, dtype="int64")
             else:
                 output[column] = pd.Series(pd.NA, index=output.index, dtype="object")
-    output = MatchingOutputSchema.validate(output, lazy=True)
+    if config.source == "scopus":
+        output = MatchingOutputSchema.validate(output, lazy=True)
+    else:
+        output[MATCH_PRIORITY] = output[MATCH_PRIORITY].astype("int64")
+        output = OpenAlexMatchingOutputSchema.validate(output, lazy=True)
     ordered_columns = [column for column in _SOURCE_OUTPUT_COLUMN_ORDER if column in output]
     ordered_columns.extend(column for column in output.columns if column not in ordered_columns)
     output = output.loc[:, ordered_columns]

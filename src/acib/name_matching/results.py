@@ -16,7 +16,7 @@ class NameMatchingInputs:
     """Loaded in-memory inputs for researcher-to-author matching.
 
     :param researchers: Researcher records used for matching.
-    :param candidate_authors: Scopus-author candidate records.
+    :param candidate_authors: Source-adapted candidate-author evidence rows.
     :param researcher_output_metadata: Optional source-spelling metadata frame used
         to preserve the existing resolved-artifact serialization.
     """

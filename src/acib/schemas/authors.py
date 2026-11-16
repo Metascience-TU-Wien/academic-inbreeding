@@ -111,6 +111,23 @@ class ScopusAuthorInputSchema(AuthorAffiliationSchema):
         coerce = False
 
 
+class OpenAlexAuthorAffiliationInputSchema(pa.DataFrameModel):
+    """Validate the observed OpenAlex author-institution observation rows.
+
+    Each row represents an author-institution observation; author IDs may
+    therefore repeat across rows.
+    """
+
+    author_id: Series[str] = pa.Field(alias="author_id", nullable=False)
+    institution_id: Series[str] = pa.Field(alias="institution_id", nullable=False)
+
+    class Config:
+        """Allow additional source metadata and avoid implicit coercion."""
+
+        strict = False
+        coerce = False
+
+
 class DisambiguationAuthorSchema(pa.DataFrameModel):
     """Validate canonical author rows at the pair-scoring boundary."""
 

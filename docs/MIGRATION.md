@@ -87,7 +87,7 @@
   mixed-estimator headings/notes, and M9/M10 supplementary output-file checks.
 - Compared source and target Model 1–10 specifications using the original
   repository's implementations at
-  `/home/chri/PycharmProjects/name-matching-playground`: all formula strings,
+  `../name-matching-playground`: all formula strings,
   complete-case row indexes, Patsy design columns, and design-matrix values
   matched exactly. Sample sizes were 119 for Models 1–8 and 118 for Models 9–10
   in the deterministic comparison fixture. Design dimensions were 6, 7, 8, 8,
@@ -489,9 +489,67 @@ established by inspecting implementations.
 - `./.venv/bin/ruff check src/acib/common src/acib/name_matching` passed.
 - `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/common src/acib/name_matching` passed with no type errors. Mypy reported unused module-specific configuration sections because this scoped invocation did not analyze those modules.
 - The module entry point's `--help` smoke check passed using temporary package injection for missing runtime dependencies; it did not run the matching pipeline or validate output equivalence.
-- Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel --out-dir /tmp/opencode` and `uv run /home/chri/PycharmProjects/academic-inbreeding/.venv/bin/python /home/chri/PycharmProjects/academic-inbreeding/scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
+- Configured `tool.uv.build-backend.module-name = "acib"` to match the existing package scaffold. `uv build --wheel` and `uv run python scripts/match_author_names.py --help` both completed successfully. The help invocation verifies startup only; it does not execute or verify pipeline outputs.
 - `uv run pytest tests/name_matching/` passed (25 tests); `uv run pytest tests/integration/` passed (4 tests). These focused tests emitted pandas `FutureWarning`s from `combine_first` when affiliation fields contain empty entries.
 - `./.venv/bin/ruff check src/acib/name_matching tests/name_matching tests/integration` passed. `uv run --no-project --with mypy mypy --config-file mypy.ini src/acib/name_matching tests/name_matching tests/integration` passed with no type errors; mypy reported unused unrelated configuration sections.
+
+### OpenAlex candidate-input extension — Phase 2
+
+- Added a source-specific contract for the observed derived OpenAlex
+  author-affiliation table. Its required `author_id` and `institution_id`
+  values remain strings; repeated author IDs and additional source fields are
+  permitted.
+- CSV/Parquet reading is selected from the configured path suffix. The source
+  selector is `[data].source`; OpenAlex uses the canonical `[data].path`, while
+  existing Scopus configurations may continue using the legacy
+  `[data].candidate_authors_file` key. Declaring both path keys is rejected.
+- The OpenAlex adapter handles the observed Arrow JSON extension and strict
+  JSON-serialized CSV fields, preserves null versus empty-list name evidence,
+  and emits raw name evidence with source and optional work-ID provenance.
+  Parsing hypotheses are separate from raw evidence; ambiguous whitespace
+  names consider both given-first and family-first orientations. Unsplit names
+  remain evidence but are not fabricated into matching hypotheses.
+- OpenAlex institution filtering uses the organization-to-institution mapping
+  supplied by the user. The existing Scopus map and Scopus parent-affiliation
+  normalization remain source-specific and unchanged. Matching candidates are
+  deduplicated by researcher/OpenAlex author ID, and OpenAlex output schemas
+  preserve author and institution URL IDs as strings.
+- Phase 2 does not migrate tests or claim behavioral equivalence. Focused
+  Phase 4 verification was gated on separate user approval. The current
+  downstream disambiguation artifact contract is Scopus-oriented (including
+  required EID/profile fields); end-to-end OpenAlex disambiguation is therefore
+  not claimed by this name-matching-only extension.
+- Phase 3 static checks: Ruff passed; mypy passed with no issues (mypy reports
+  unused unrelated configuration sections); the configured pre-commit hooks
+  passed on the changed files. No tests were run.
+
+### OpenAlex candidate-input extension — Phase 4
+
+- Added `config/name_matching_openalex.toml`. It selects the observed Parquet
+  input, the current researcher CSV, OpenAlex institution filtering, and a
+  separate `data/output/name_matching_openalex/` directory so the Scopus
+  artifact is not overwritten.
+- Added tests for source-specific string-ID schemas, both name-order
+  hypotheses, raw-name/source/work provenance, null-versus-empty structured
+  fields, strict JSON rejection, repeated publication-name aggregation,
+  unsplittable variants, configured OpenAlex paths, Arrow JSON Parquet reading,
+  institution filtering, author-ID deduplication, and string-ID CSV output.
+- The source test file was run read-only with bytecode and pytest cache writes
+  disabled: `tests/test_match_author_names.py` collected **11 passed**. The
+  equivalent existing Scopus target coverage and new OpenAlex tests were run
+  with `uv run pytest tests/name_matching/ tests/schemas/
+  tests/integration/test_name_matching_workflow.py
+  tests/integration/test_openalex_name_matching_workflow.py -q`: **78 passed**,
+  with five existing pandas `FutureWarning`s from affiliation aggregation.
+- A read-only 32-row sample from the observed Parquet was adapted successfully:
+  all author and institution IDs remained strings. Grouping identical
+  normalized hypotheses retains all raw evidence and associated work IDs;
+  this sample produced 284 compact evidence rows after aggregation. This smoke
+  sample is not a full-dataset matching run or a source-output equivalence
+  claim.
+- Ruff, mypy, and configured pre-commit hooks passed on the applicable changed
+  files. Mypy reports only unused unrelated configuration sections. No tests
+  for other stages were changed or run.
 
 ### Full-data output-equivalence reconciliation
 
@@ -552,7 +610,7 @@ established by inspecting implementations.
   `candidate_authors_file`, `article_author_file_path`,
   `article_reference_file_path`, and `author_affiliations_file_path`. The
   GeoPackage remains the verified source dataset at
-  `/home/chri/PycharmProjects/name-matching-playground/data/input/author_affiliation.gpkg`;
+  `../name-matching-playground/data/input/author_affiliation.gpkg`;
   it was not replaced with a different file.
 - Mobility resolves its author-selection input from
   `name_disambiguation.outputs.final_author_selection`, researcher metadata from

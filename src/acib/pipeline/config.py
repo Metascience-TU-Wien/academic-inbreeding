@@ -9,7 +9,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from acib.mobility.config import MobilityConfig, MobilityOutputs
 from acib.name_disambiguation.config import (
@@ -113,6 +113,38 @@ def _data_path(data: Mapping[str, Any], key: str, *, required: bool) -> Path | N
     return resolve_config_path(value)
 
 
+def _candidate_author_input(
+    data: Mapping[str, Any],
+) -> tuple[Literal["scopus", "openalex"], Path]:
+    """Resolve the source and single configured path for candidate-author data.
+
+    ``[data].path`` is the canonical candidate-input key. The previous
+    ``candidate_authors_file`` spelling remains supported for existing
+    configurations, but both keys cannot be declared together.
+
+    :param data: The shared ``[data]`` TOML table.
+    :return: Bibliographic source selector and resolved candidate path.
+    :raises KeyError: If neither candidate path key is configured.
+    :raises TypeError: If the source or path has an invalid TOML type.
+    :raises ValueError: If the source or path declarations are ambiguous.
+    """
+    source = data.get("source", "scopus")
+    if not isinstance(source, str):
+        raise TypeError("[data].source must be 'scopus' or 'openalex'")
+    if source not in {"scopus", "openalex"}:
+        raise ValueError("[data].source must be 'scopus' or 'openalex'")
+
+    if "path" in data and "candidate_authors_file" in data:
+        raise ValueError(
+            "[data] must declare only one candidate-author path; "
+            "use 'path' or the legacy 'candidate_authors_file', not both"
+        )
+    path_key = "path" if "path" in data else "candidate_authors_file"
+    path = _data_path(data, path_key, required=True)
+    assert path is not None
+    return cast(Literal["scopus", "openalex"], source), path
+
+
 def _reject_stage_path_duplicates(
     section: Mapping[str, Any], stage: str, keys: tuple[str, ...]
 ) -> None:
@@ -166,7 +198,7 @@ def load_name_matching_config(path: str | Path) -> NameMatchingConfig:
     )
     data = _table(raw, "data", required=False)
     researchers = _data_path(data, "researcher_file_path", required=True)
-    authors = _data_path(data, "candidate_authors_file", required=True)
+    source, authors = _candidate_author_input(data)
     assert researchers is not None and authors is not None
     aliases = section.get("enable_given_name_aliases", True)
     organization_filter = section.get("enable_organisation_filter", True)
@@ -179,6 +211,7 @@ def load_name_matching_config(path: str | Path) -> NameMatchingConfig:
         researcher_file_path=researchers,
         candidate_authors_file=authors,
         outputs=_load_name_matching_outputs(raw),
+        source=source,
         enable_given_name_aliases=aliases,
         enable_organisation_filter=organization_filter,
         existing_scopus_author_id_column=section.get("existing_scopus_author_id_column"),
@@ -267,7 +300,7 @@ def load_pipeline_config(path: str | Path) -> PipelineConfig:
     _table(raw, "name_matching", required=True)
     disambiguation_section = _table(raw, "name_disambiguation", required=False)
     researchers = _data_path(data, "researcher_file_path", required=True)
-    scopus_authors = _data_path(data, "candidate_authors_file", required=True)
+    _, scopus_authors = _candidate_author_input(data)
     article_author = _data_path(
         data, "article_author_file_path", required=bool(disambiguation_section)
     )

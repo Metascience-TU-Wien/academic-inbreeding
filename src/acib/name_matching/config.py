@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from acib.name_matching.constants import RESOLVED_RESEARCHERS_FILENAME
 
@@ -31,6 +32,7 @@ class NameMatchingConfig:
     researcher_file_path: Path
     candidate_authors_file: Path
     outputs: NameMatchingOutputs
+    source: Literal["scopus", "openalex"] = "scopus"
     enable_given_name_aliases: bool = True
     enable_organisation_filter: bool = True
     existing_scopus_author_id_column: str | None = None

@@ -336,7 +336,11 @@ def simple_name_merge(
     dedupe = [column for column in (RESEARCHER_ID, AUTHOR_ID, AFFILIATION_ID) if column in result]
     if dedupe:
         result = result.drop_duplicates(dedupe)
-    entities = [column for column in (RESEARCHER_ID, EID) if column in result]
+    entities = (
+        [RESEARCHER_ID, EID]
+        if EID in result
+        else [column for column in (RESEARCHER_ID, AUTHOR_ID) if column in result]
+    )
     result = result.sort_values(MATCH_PRIORITY)
     if entities:
         result = result.drop_duplicates(subset=entities)

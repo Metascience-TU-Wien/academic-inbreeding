@@ -15,7 +15,7 @@ from acib.name_matching.workflow import run_name_matching
 def main() -> None:
     """Run name matching using a pipeline TOML configuration."""
     parser = argparse.ArgumentParser(
-        description="Match configured researcher names to Scopus authors."
+        description="Match configured researchers to candidate author records."
     )
     parser.add_argument(
         "--config",
