@@ -1,5 +1,42 @@
 # Migration plan and results
 
+## Approved FH Campus Wien ASJC organization mapping
+
+- The user approved replacing the broad, inaccurate `Applied Life Sciences` →
+  `1100` inference for FH Campus Wien with these department mappings, using the
+  existing four-digit general-category inference convention: Applied Life
+  Sciences → `1300, 1500, 1600, 1700, 2300, 2400, 2500`; Bauen und Gestalten →
+  `2100, 2200, 2300`; Gesundheitswissenschaften and Angewandte
+  Pflegewissenschaft → `2700, 2900, 3600`; Sozialwissenschaften →
+  `1400, 3200, 3300`; Technik → `1700, 2100, 2200, 2500`; Verwaltung,
+  Wirtschaft, Sicherheit, Politik → `1400, 1800, 2000, 3300`. An empty
+  department produces no new ASJC evidence.
+- These are department-derived inferences, not Elsevier classifications of
+  individual researchers or their publications. The four-digit `xx00` codes
+  follow the existing pipeline's parent-category comparison behavior. Extended
+  categories and separate tie-break weighting are not used.
+- `pipeline_v2.toml` now uses the user-updated `data/input/staff_records.csv`
+  as its canonical researcher input. The change is limited to this config and
+  the existing shared organization-to-ASJC mapping; all other organization
+  rules and disambiguation behavior remain unchanged.
+- Phase 4 added parameterized matching tests for all seven mappings, blank
+  department evidence, deduplication across multiple organizations, and the
+  configured `pipeline_v2` researcher input. The mapped 459-row FH input has 52
+  Applied Life Sciences, 25 Bauen und Gestalten, 189 Gesundheitswissenschaften,
+  58 Angewandte Pflegewissenschaft, 47 Sozialwissenschaften, 58 Technik, 23
+  Verwaltung/Wirtschaft/Sicherheit/Politik, and 7 blank-department rows. All 52
+  Applied Life Sciences rows infer the new mapping without `1100`.
+- `uv run pytest tests/name_matching/ --ignore=tests/name_matching/test_openalex_fields.py -q`:
+  **47 passed**, with 3 existing pandas `FutureWarning`s. The unfiltered stage
+  command cannot collect because the pre-existing untracked
+  `test_openalex_fields.py` imports the absent `acib.name_matching.openalex_fields`
+  module; that file was not changed. The matching workflow integration command
+  passed **5 tests**, with 2 existing pandas `FutureWarning`s.
+- Ruff, scoped mypy, and configured pre-commit hooks passed. A direct source
+  comparison against the read-only original mapping for six non-FH organization
+  examples produced identical codes. The full configured matching pipeline was
+  not run.
+
 ## Approved disambiguation self-name exclusion correction
 
 - The user requested a reliable correction after investigation showed that

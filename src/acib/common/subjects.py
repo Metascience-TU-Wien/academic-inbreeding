@@ -8,15 +8,17 @@ import ast
 import json
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, Iterable
+from typing import Any
 
 ASJC_PARENT_LABELS = {
     1100: "Agricultural and Biological Sciences",
     1200: "Arts and Humanities",
     1300: "Biochemistry, Genetics and Molecular Biology",
     1400: "Business, Management and Accounting",
+    1500: "Chemical Engineering",
     1600: "Chemistry",
     1700: "Computer Science",
     1800: "Decision Sciences",
@@ -24,6 +26,7 @@ ASJC_PARENT_LABELS = {
     2100: "Energy",
     2200: "Engineering",
     2300: "Environmental Science",
+    2400: "Immunology and Microbiology",
     2500: "Materials Science",
     2600: "Mathematics",
     2700: "Medicine",
@@ -33,6 +36,7 @@ ASJC_PARENT_LABELS = {
     3100: "Physics and Astronomy",
     3200: "Psychology",
     3300: "Social Sciences",
+    3600: "Health Professions",
 }
 
 
@@ -44,6 +48,27 @@ class OrganizationRule:
 
 
 ORGANIZATION_RULES: tuple[OrganizationRule, ...] = (
+    # Hochschule Campus Wien department-level evidence. These four-digit
+    # general-category codes follow the existing organization inference model.
+    OrganizationRule(
+        ("applied life sciences",),
+        (1300, 1500, 1600, 1700, 2300, 2400, 2500),
+        require_all=True,
+    ),
+    OrganizationRule(("bauen und gestalten",), (2100, 2200, 2300), require_all=True),
+    OrganizationRule(("gesundheitswissenschaften",), (2700, 2900, 3600), require_all=True),
+    OrganizationRule(
+        ("angewandte pflegewissenschaft",),
+        (2700, 2900, 3600),
+        require_all=True,
+    ),
+    OrganizationRule(("sozialwissenschaften",), (1400, 3200, 3300), require_all=True),
+    OrganizationRule(("technik",), (1700, 2100, 2200, 2500), require_all=True),
+    OrganizationRule(
+        ("verwaltung wirtschaft sicherheit politik",),
+        (1400, 1800, 2000, 3300),
+        require_all=True,
+    ),
     # FH Salzburg, Kuchl Campus: sustainability-focused design/engineering
     # department covering renewable materials, construction/renovation,
     # circular design, and circular economy. This is not generic visual design.
