@@ -26,6 +26,7 @@ def test_openalex_workflow_reads_arrow_json_and_preserves_stable_ids(
                 "person_surname": "Smith",
                 "person_fullname": "Anna Smith",
                 "university_name": "TU Wien",
+                "organization_names_relevant": ["Fakultät Wirtschaft"],
                 "scopus_author_id": 999.0,
                 "researcher_note": "retained",
             }
@@ -81,9 +82,18 @@ def test_openalex_workflow_reads_arrow_json_and_preserves_stable_ids(
     assert output[AUTHOR_ID].tolist() == ["https://openalex.org/A123"]
     assert output[AFFILIATION_ID].tolist() == ["https://openalex.org/I145847075"]
     assert output["researcher_note"].tolist() == ["retained"]
+    assert json.loads(output.loc[0, "inferred_openalex_field_ids"]) == [
+        "https://openalex.org/fields/14"
+    ]
+    assert json.loads(output.loc[0, "inferred_openalex_field_labels"]) == [
+        "Business, Management and Accounting"
+    ]
     assert "scopus_author_id" not in output.columns
     assert persisted[AUTHOR_ID].tolist() == ["https://openalex.org/A123"]
     assert persisted[AFFILIATION_ID].tolist() == ["https://openalex.org/I145847075"]
+    assert json.loads(persisted.loc[0, "inferred_openalex_field_ids"]) == [
+        "https://openalex.org/fields/14"
+    ]
     evidence = json.loads(persisted.loc[0, "name_variants"])
     assert evidence[0]["raw_name"] == "Anna Smith"
     assert evidence[0]["source"] == "author_display_name"

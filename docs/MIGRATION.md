@@ -551,6 +551,52 @@ established by inspecting implementations.
   files. Mypy reports only unused unrelated configuration sections. No tests
   for other stages were changed or run.
 
+### OpenAlex researcher Field enrichment — Phase 2
+
+- Added an OpenAlex-specific researcher metadata adapter in
+  `acib.name_matching.openalex_fields`. For OpenAlex matching only, it derives
+  Fields from `organization_names_relevant`, falling back to `organization`.
+  Dedicated organization-text rules map directly to OpenAlex Field URIs; the
+  adapter does not read precomputed ASJC codes or use an ASJC intermediate.
+  Veterinary organization terms can identify OpenAlex Field 34. Scopus
+  identifiers and ASJC metadata are not rewritten.
+- Name matching adds `inferred_openalex_field_ids` and
+  `inferred_openalex_field_labels` to the resolved researcher metadata. The
+  existing Scopus path is unchanged. The existing ASJC evidence adaptation
+  invoked by disambiguation remains in `prepare_scoring_author_frame`; this
+  change does not modify disambiguation or its scoring.
+- This is an initial deterministic rule-based department/organization
+  assignment, not a claim that every organization is covered or that inferred
+  organizational Fields equal publication-derived OpenAlex Fields. No tests
+  were migrated or run in Phase 2; Phase 4 remains separately gated.
+- Ruff, mypy, and the configured pre-commit hooks passed on the changed Python
+  files. No data output was generated or overwritten.
+
+#### Phase 4 verification
+
+- Added adapter tests for relevant-organization precedence, fallback to raw
+  organization metadata, multiple distinct Fields, ignoring precomputed ASJC
+  codes, veterinary-versus-human-medicine distinctions, the direct
+  ``Bühnengestaltung`` → Arts and Humanities rule, existing-value preservation,
+  unmapped organizations, and nonmutation of the researcher input.
+  The OpenAlex workflow integration test verifies that Field URI strings and
+  labels are present in both the returned and persisted researcher artifact.
+  The existing Scopus workflow test confirms no OpenAlex Field columns are
+  added to Scopus output.
+- `uv run pytest tests/name_matching/
+  tests/integration/test_name_matching_workflow.py
+  tests/integration/test_openalex_name_matching_workflow.py -q`: **57 passed**,
+  with five pre-existing pandas `FutureWarning`s from Scopus affiliation
+  aggregation.
+- A read-only, in-memory application to the configured 93,855-row researcher
+  CSV assigned at least one Field to **62,423 rows** (66.5%); 31,432 rows had
+  no Field inferable from their organization names. All 26 OpenAlex Fields
+  appeared. The input frame was not mutated, and no dataset/output file was
+  written. This is a coverage smoke check, not a correctness label or
+  publication-based validation.
+- Ruff, mypy, and all configured pre-commit hooks passed on the changed Python
+  implementation and tests. The original repository was not modified.
+
 ### Full-data output-equivalence reconciliation
 
 - The corrected researcher CSV is retained as the authoritative metadata source. Matching results are joined without overlapping match-side researcher fields, and the configured `scopus_author_id` control column is excluded from the resolved output. Metadata is read lexically for output so values such as Scopus IDs and scores retain their CSV spelling.

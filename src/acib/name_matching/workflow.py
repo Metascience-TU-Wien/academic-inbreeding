@@ -48,6 +48,11 @@ from acib.name_matching.input import (
     prepare_name_matching_inputs,
 )
 from acib.name_matching.matching import ResearcherMatchResult, match_researchers
+from acib.name_matching.openalex_fields import (
+    OPENALEX_FIELD_IDS_COLUMN,
+    OPENALEX_FIELD_LABELS_COLUMN,
+    add_inferred_openalex_field_columns,
+)
 from acib.name_matching.output import (
     save_name_matching_results,
     validate_name_matching_output_path,
@@ -291,6 +296,8 @@ def compute_name_matching(
         source=config.source,
     )
     researcher_metadata = inputs.researchers
+    if config.source == "openalex":
+        researcher_metadata = add_inferred_openalex_field_columns(researcher_metadata)
     if config.enable_organisation_filter and UNIVERSITY_NAME not in researcher_metadata:
         raise ValueError(
             f"Researcher input requires {UNIVERSITY_NAME!r} when organization filtering is enabled"
@@ -379,6 +386,15 @@ def compute_name_matching(
         researcher_output_metadata = researcher_metadata.copy()
     else:
         researcher_output_metadata = researcher_output_metadata.copy()
+        if config.source == "openalex":
+            metadata_by_researcher = researcher_metadata.set_index(RESEARCHER_ID)
+            for column in (
+                OPENALEX_FIELD_IDS_COLUMN,
+                OPENALEX_FIELD_LABELS_COLUMN,
+            ):
+                researcher_output_metadata[column] = researcher_output_metadata[RESEARCHER_ID].map(
+                    metadata_by_researcher[column]
+                )
     researcher_output_metadata[RESEARCHER_ID] = researcher_metadata[RESEARCHER_ID].array
     if config.existing_scopus_author_id_column is not None:
         researcher_output_metadata = researcher_output_metadata.drop(

@@ -120,6 +120,8 @@ def test_run_name_matching_restores_metadata_and_preserves_matches(tmp_path: Pat
     passthrough = output.loc[output["priority"].eq(0)].iloc[0]
     assert passthrough[AUTHOR_ID] == 999
     assert "scopus_author_id" not in output.columns
+    assert "inferred_openalex_field_ids" not in output.columns
+    assert "inferred_openalex_field_labels" not in output.columns
     assert passthrough["researcher_metadata"] == "also-preserve"
     fallback = output.loc[output[RESEARCHER_ID].eq(4)].iloc[0]
     assert fallback[AUTHOR_ID] == 11
