@@ -26,7 +26,8 @@ def test_openalex_workflow_reads_arrow_json_and_preserves_stable_ids(
                 "person_surname": "Smith",
                 "person_fullname": "Anna Smith",
                 "university_name": "TU Wien",
-                "organization_names_relevant": ["Fakultät Wirtschaft"],
+                "organization": "Fakultät Wirtschaft",
+                "organization_names_relevant": ["Veterinärmedizin"],
                 "scopus_author_id": 999.0,
                 "researcher_note": "retained",
             }

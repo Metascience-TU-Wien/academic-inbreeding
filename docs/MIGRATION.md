@@ -37,6 +37,158 @@
   examples produced identical codes. The full configured matching pipeline was
   not run.
 
+#### OpenAlex Field organization-source clarification
+
+- The user approved using only the source `organization` column for direct
+  OpenAlex Field derivation. `organization_names_relevant` is not consulted;
+  ASJC fields remain unused. On `staff_records.csv`, which has no
+  `organization_names_relevant` column, this clarification does not change the
+  derived FH Campus Wien results. Inputs where the two organization fields
+  disagree will now follow `organization` exclusively.
+- This behavior clarification is implemented; the user approved Phase 4
+  verification.
+- The user approved assigning NanoGlykobiologie organization entries to
+  OpenAlex Fields 13 (Biochemistry, Genetics and Molecular Biology), 24
+  (Immunology and Microbiology), 16 (Chemistry), and 15 (Chemical
+  Engineering). The direct-organization rule now emits all four IDs/labels
+  when that organization is present. Existing Scopus ASJC fields and the
+  researcher input file are unchanged.
+- Phase 4 updated the organization-source tests and added coverage for all
+  four NanoGlykobiologie Fields. `uv run pytest tests/name_matching/
+  tests/integration/test_name_matching_workflow.py
+  tests/integration/test_openalex_name_matching_workflow.py -q`: **68 passed**,
+  with five existing pandas `FutureWarning`s from Scopus affiliation
+  aggregation.
+- Regenerated `data/input/_temp/_openalex_fields.csv` from the corresponding
+  93,855-row enriched source file, recomputing OpenAlex Fields from
+  `organization` only. The result has 62,552 rows with Fields and 31,303 blank;
+  all 10 rows whose organization contains NanoGlykobiologie received Fields
+  13, 15, 16, and 24. Row order and count were retained, and Scopus ASJC code
+  and label columns were verified unchanged. `staff_records.csv` was not
+  modified.
+
+#### OpenAlex organization Field inference expansion
+
+- The user requested broader, conservative classification using only individual
+  organization units parsed from the `organization` column. Ordered and
+  unordered units are evaluated independently; administrative and generic
+  `Field of Expertise` names do not contribute evidence. Field IDs and labels
+  retain the established OpenAlex URL/output format. Scopus ASJC values and
+  disambiguation behavior are not used or changed.
+- Added reusable discipline-specific keywords for the requested examples:
+  glycobiology (13; add 24 only with explicit microbial context), molecular
+  plant biology (11, 13), bio data science (13, 17), heat engineering (21, 22),
+  forming technology (22, 25), automation engineering (17, 22), science and
+  technology studies (33), and international taxation (14, 20). Additional
+  German/English discipline terms and administrative-name exclusions are
+  maintained in `src/acib/name_matching/openalex_fields.py`; ambiguous generic
+  labels remain unclassified.
+- The complete fixture contains 2,483 unique raw organization values and 1,691
+  distinct parsed non-placeholder units from the previously unmatched records.
+  Current rules classify 917 raw values and 445 distinct units; 487 distinct
+  units are deliberately recognized as administrative/generic, and 759
+  non-administrative units remain without a Field assignment. These are
+  distinct-name counts, not researcher-row counts. Remaining potentially
+  potentially discipline-bearing but still unassigned examples include
+  `Institut für Outcomes Research`, `Institut für Sicherheitsforschung`,
+  `Forschungsplattform The Stress of Life - Processes and Mechanisms underlying
+  Everyday Life Stress`, `Digital Age Research Center (D!ARC)`, `Research Unit
+  of Theory and Logic`, and `Center for Future Design`. These labels need
+  narrower context before a defensible one- or multi-Field assignment. Broad or
+  institution-specific names such as research centers, research platforms,
+  faculties, and `Technik` remain unassigned absent sufficient discipline
+  evidence.
+- Phase 4 tests cover the full 2,483-value fixture, the requested mappings,
+  per-unit ordered/unordered aggregation, and administrative/generic negative
+  cases. `uv run pytest tests/name_matching/
+  tests/integration/test_openalex_name_matching_workflow.py -q`: **100 passed**,
+  with three existing pandas `FutureWarning`s in Scopus affiliation
+  aggregation. Ruff and configured pre-commit hooks passed, including Black,
+  Flake8, and mypy. The direct `uv run mypy ...` command could not spawn mypy
+  in the uv environment; the configured pre-commit mypy hook succeeded.
+- Recomputed `data/input/_temp/_openalex_fields.csv` without changing its
+  93,855-row count or order. All 62,552 originally nonempty OpenAlex ID and
+  label cells were preserved exactly; 11,858 originally blank rows gained
+  inferred Fields. The resulting file has 74,410 nonblank and 19,445 blank
+  OpenAlex ID rows. Scopus ASJC code and label columns were verified unchanged.
+  `staff_records.csv` was not modified.
+
+#### Additional institution-contextual OpenAlex Fields
+
+- Following the user's follow-up, inference now uses `university_name` only for
+  the explicit context-sensitive case `organization = "Mode"` and
+  `university_name = "Uni AK Wien"` → Field 12 (Arts and Humanities). `Mode`
+  alone remains unclassified. Discipline-specific organization names such as
+  `Schauspiel`, `Saiteninstrumente`, `TransArts`, and `Zeichnung und
+  Druckgrafik` map to Field 12 directly.
+- `Max Perutz Labs` and its numbered/location variants map to Field 13
+  (Biochemistry, Genetics and Molecular Biology). The administrative
+  `Max Perutz Labs Support GmbH` variant is excluded. Other reviewed
+  organization-name cues include `More-than-Human Design and Regenerative AI`
+  (12, 17), `Smart Building Technologies` (22),
+  `Institut für Tragwerksentwurf` (22), `Universitätslehrgang Intensivpflege`
+  (29), and `ULG Interpersonelle Kommunikation` (33).
+- Scopus ASJC values were not used as inference inputs; the organization names
+  and the explicitly approved university context determine the OpenAlex Fields.
+  The user's supplied Scopus examples served only as pointers for candidate
+  organization units to inspect.
+- The focused OpenAlex Field and workflow tests pass. The broader
+  `uv run pytest tests/name_matching/ tests/integration/test_openalex_name_matching_workflow.py -q`
+  run produced **113 passed, 1 failed**: a pre-existing configuration test
+  expects `candidate_authors_file` in the untracked
+  `config/name_matching_openalex.toml`. That unrelated configuration was not
+  changed.
+- The focused OpenAlex Field and workflow command passed **59 tests**.
+  Regenerated `_openalex_fields.csv`: 172 additional blank rows gained Fields
+  in this follow-up; cumulative from the earlier 62,552 nonblank baseline,
+  12,877 rows gained Fields. The result now has 75,429 nonblank and 18,426
+  blank OpenAlex Field rows. Prior nonblank OpenAlex values and Scopus ASJC
+  code/label columns remain unchanged.
+- The next user-provided FH Oberösterreich examples are handled contextually:
+  `AIST`, `Assistive Technology Lab`, and `PEEC` contribute Field 17 only when
+  they occur with `Research Center Hagenberg` and `university_name = FH
+  Oberösterreich`. The later-reviewed `HEAL` unit contributes Fields 17 and 22
+  in that same Hagenberg context, based on its heuristic/evolutionary algorithm
+  work for production and logistics. `Research Center Steyr` with its `Focal
+  area Digital Transformation` contributes Fields 14 and 17; `Research Center
+  Wels` with `D-Farm` contributes Fields 11 and 13.
+- Additional reviewed mappings include Alpine natural hazards (19, 22, 23);
+  electric drives, electrical networks, and hydraulic flow machinery (21, 22);
+  signal processing and speech communication (17, 22); rock metallurgy (22,
+  25); architecture institutes (22); wind/percussion instruments (12);
+  logopedics (36); aviation and production engineering programs (22);
+  Interaction, Media & Sound Design and Center for Future Design (12). In the
+  user's follow-up, `Sprachen, Schlüsselkompetenzen und Interne Weiterbildung`
+  was explicitly mapped to Fields 12 and 33, `Universitätssport` to Field 36,
+  and explicit degree subjects inside selection-committee labels to their
+  subject Fields (Advanced Materials Science → 25; Data Science → 17). These
+  are narrow, user-requested exceptions to the otherwise conservative exclusion
+  of service/administrative labels. Generic `Forschungsassistenz` and
+  `Field of Expertise` values remain unassigned. Scopus ASJC values are not
+  inference inputs.
+- The first regeneration after the organization additions retained 93,855 rows,
+  with 77,371 nonblank OpenAlex ID rows (495 net additions). After the
+  user-requested language, university-sport, and explicit degree-subject rules,
+  the output has 77,571 nonblank OpenAlex ID rows (200 more). Existing nonblank
+  OpenAlex ID/label values, row order, and Scopus ASJC code/label columns were
+  preserved in both regenerations.
+- The user approved Phase 4. Added targeted tests for language and
+  university-sport Fields, subject-specific Fields in the Advanced Materials
+  Science and Data Science selection labels, exclusion of generic research
+  assistance/`Field of Expertise` evidence, and contextual HEAL mapping. The
+  original repository has no equivalent organization-to-OpenAlex-Field
+  classifier, so these new taxonomy decisions use explicit expected Field IDs
+  rather than a source-code equivalence assertion.
+- `uv run pytest tests/name_matching/test_openalex_fields.py
+  tests/integration/test_openalex_name_matching_workflow.py -q`: **73 passed**.
+  `uv run pytest tests/name_matching/ tests/integration/test_openalex_name_matching_workflow.py -q`
+  produced **127 passed, 1 failed**, because the pre-existing untracked
+  `config/name_matching_openalex.toml` lacks the required
+  `[data].candidate_authors_file` declaration. That config was left unchanged.
+  Excluding only its config test, the same scope passed **127 tests** (one
+  deselected); three existing pandas concatenation `FutureWarning`s remain.
+  Ruff, scoped mypy, and configured pre-commit hooks passed.
+
 ## Approved disambiguation self-name exclusion correction
 
 - The user requested a reliable correction after investigation showed that
