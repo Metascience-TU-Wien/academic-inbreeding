@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -33,6 +32,8 @@ from acib.name_disambiguation.constants import (
     LEFT_AUTHOR_ID,
     LEFT_CANONICAL_NAME,
     LEFT_NAME,
+    OPENALEX_FIELD_IDS,
+    OPENALEX_FIELD_OVERLAP_IDS,
     ORCID,
     OVERLAP_CODES,
     OVERLAP_COUNT,
@@ -47,7 +48,10 @@ from acib.name_disambiguation.constants import (
     TEMPORAL_HARD_CONFLICT_LABELS,
     UNIVERSITY_AFFILIATION_IDS,
 )
-from acib.name_disambiguation.models import FinalAuthorSelection
+from acib.name_disambiguation.models import (
+    FinalAuthorSelection,
+    final_author_selection_record,
+)
 from acib.name_matching.constants import INDEXED_NAME, NAME
 
 _SELECTED_COLUMN = "selected"
@@ -94,6 +98,7 @@ def render_text_report(
     clusters: pd.DataFrame,
     final_selection: FinalAuthorSelection | None = None,
     final_selection_scores: pd.DataFrame | None = None,
+    source: Literal["scopus", "openalex"] = "scopus",
 ) -> str:
     """Render the legacy human-readable pair, cluster, and selection report.
 
@@ -187,7 +192,15 @@ def render_text_report(
                     f"selected_author_ids={final_selection.selected_author_ids}",
                 ]
             )
-        if final_selection.inferred_asjc_codes:
+        if source == "openalex" and final_selection.inferred_openalex_field_ids:
+            lines.append(
+                f"inferred_openalex_field_ids={final_selection.inferred_openalex_field_ids}"
+            )
+            lines.append(
+                f"inferred_openalex_field_labels={final_selection.inferred_openalex_field_labels}"
+            )
+            lines.append(f"openalex_field_ids={final_selection.openalex_field_ids}")
+        elif final_selection.inferred_asjc_codes:
             level_two_codes = sorted(level_two_asjc_codes(final_selection.inferred_asjc_codes))
             lines.extend(
                 [
@@ -223,8 +236,7 @@ def render_text_report(
                     f"disambiguated_cluster_id={getattr(row, DISAMBIGUATED_CLUSTER_ID)} "
                     f"overlap_count={getattr(row, OVERLAP_COUNT)} "
                     f"inferred_coverage={getattr(row, INFERRED_COVERAGE):.3f} "
-                    f"author_ids={getattr(row, AUTHOR_IDS)} "
-                    f"overlap_codes={getattr(row, OVERLAP_CODES)}"
+                    f"author_ids={getattr(row, AUTHOR_IDS)}"
                 )
                 if hasattr(row, GENDER_COMPATIBLE):
                     lines.append(f"    gender_compatible={getattr(row, GENDER_COMPATIBLE)}")
@@ -243,18 +255,28 @@ def render_text_report(
                         f"cluster:{getattr(row, CLUSTER_GENDER)}"
                         f"({getattr(row, CLUSTER_GENDER_SOURCE) or 'n/a'})"
                     )
-                lines.append(
-                    f"    cluster_subject_areas={format_asjc_codes(getattr(row,
-                                                                           CLUSTER_SUBJECT_CODES))}"
-                )
+                if source == "openalex" and hasattr(row, OPENALEX_FIELD_IDS):
+                    lines.append(f"    openalex_field_ids={getattr(row, OPENALEX_FIELD_IDS)}")
+                    lines.append(
+                        f"    openalex_field_overlap_ids="
+                        f"{getattr(row, OPENALEX_FIELD_OVERLAP_IDS)}"
+                    )
+                else:
+                    lines.append(f"    overlap_codes={getattr(row, OVERLAP_CODES)}")
+                    lines.append(
+                        "    cluster_subject_areas="
+                        f"{format_asjc_codes(getattr(row, CLUSTER_SUBJECT_CODES))}"
+                    )
                 if hasattr(row, CLUSTER_LEVEL_TWO_SUBJECT_CODES):
                     lines.append(
                         "    cluster_level2_subject_areas="
                         f"{format_asjc_codes(getattr(row, CLUSTER_LEVEL_TWO_SUBJECT_CODES))}"
                     )
-                lines.append(
-                    f"    overlap_subject_areas={format_asjc_codes(getattr(row, OVERLAP_CODES))}"
-                )
+                if source != "openalex":
+                    lines.append(
+                        "    overlap_subject_areas="
+                        f"{format_asjc_codes(getattr(row, OVERLAP_CODES))}"
+                    )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -264,6 +286,7 @@ def render_json_report(
     clusters: pd.DataFrame,
     final_selection: FinalAuthorSelection | None = None,
     final_selection_scores: pd.DataFrame | None = None,
+    source: Literal["scopus", "openalex"] = "scopus",
 ) -> str:
     """Render one legacy-format JSON report as an indented JSON string.
 
@@ -306,7 +329,11 @@ def render_json_report(
     payload = {
         "pairs": decisions.to_dict(orient="records"),
         "clusters": cluster_rows,
-        "final_selection": asdict(final_selection) if final_selection is not None else None,
+        "final_selection": (
+            final_author_selection_record(final_selection, source=source)
+            if final_selection is not None
+            else None
+        ),
         "final_selection_scores": (
             final_selection_scores.to_dict(orient="records")
             if final_selection_scores is not None

@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from typing import cast
 
 import pandas as pd
 
@@ -37,7 +38,10 @@ from acib.name_disambiguation.constants import (
     CITED_EID,
     CITING_EID,
     ISO3_COUNTRY_CODE as ISO3_COUNTRY_CODE_COLUMN,
+    OPENALEX_AUTHOR_AFFILIATION_EVIDENCE,
+    OPENALEX_WORK_FIELD_IDS,
 )
+from acib.name_disambiguation.openalex import OpenAlexCitationIndex
 
 from .asjc import asjc_entry, level_two_asjc_code
 from .models import AuthorRecord
@@ -64,22 +68,27 @@ class PublicationEvidenceIndex:
     :param author_coauthor_names: Coauthor names keyed by author ID.
     :param author_publication_cities: Publication cities keyed by author ID.
     :param author_publication_countries: Publication countries keyed by author ID.
+    :param author_linked_cities: OpenAlex author-affiliation cities keyed by author ID.
+    :param author_linked_countries: OpenAlex author-affiliation countries keyed by author ID.
     :param author_grant_numbers: Grant identifiers keyed by author ID.
     :param author_article_subject_codes: Subject codes keyed by author ID.
     :param author_article_subject_labels: Subject descriptions keyed by author ID.
     """
 
-    author_articles: dict[str, set[str]]
-    author_cited_references: dict[str, set[str]]
-    citing_papers_by_cited_article: dict[str, set[str]]
+    author_articles: dict[str, set[str | int]]
+    author_cited_references: dict[str, set[str | int]]
+    citing_papers_by_cited_article: dict[str | int, set[str | int]]
     author_journals: dict[str, set[str]]
     author_coauthor_ids: dict[str, set[str]]
     author_coauthor_names: dict[str, set[str]]
     author_publication_cities: dict[str, set[str]]
     author_publication_countries: dict[str, set[str]]
+    author_linked_cities: dict[str, set[str]]
+    author_linked_countries: dict[str, set[str]]
     author_grant_numbers: dict[str, set[str]]
     author_article_subject_codes: dict[str, set[int]]
     author_article_subject_labels: dict[str, dict[int, str]]
+    author_openalex_field_ids: dict[str, set[str]]
 
 
 @dataclass(slots=True)
@@ -114,6 +123,7 @@ def build_scoring_context(
     name_frequency_df: pd.DataFrame | None = None,
     *,
     article_reference_df: pd.DataFrame | None = None,
+    openalex_citation_index: OpenAlexCitationIndex | None = None,
 ) -> ScoringContext:
     """Assemble reusable scoring indices from author and article corpora.
 
@@ -121,6 +131,7 @@ def build_scoring_context(
     :param article_author_df: Optional article-author evidence table.
     :param name_frequency_df: Optional broad author corpus for name frequency.
     :param article_reference_df: Optional citation-edge table.
+    :param openalex_citation_index: Compact OpenAlex citation evidence.
     :return: Context shared by pair and cluster scoring.
     """
     if isinstance(authors, pd.DataFrame) and article_author_df is None:
@@ -129,12 +140,17 @@ def build_scoring_context(
 
     candidate_author_ids = candidate_author_ids_from_authors(authors)
 
+    publication_index = build_publication_evidence_index(
+        article_author_df,
+        article_reference_df=article_reference_df,
+        openalex_citation_index=openalex_citation_index,
+        candidate_author_ids=candidate_author_ids,
+    )
+    if openalex_citation_index is not None:
+        openalex_citation_index.release()
+
     return ScoringContext(
-        publication_index=build_publication_evidence_index(
-            article_author_df,
-            article_reference_df=article_reference_df,
-            candidate_author_ids=candidate_author_ids,
-        ),
+        publication_index=publication_index,
         first_name_index=build_first_name_frequency_index(authors, name_frequency_df),
     )
 
@@ -215,12 +231,14 @@ def build_publication_evidence_index(
     article_author_df: pd.DataFrame | None,
     *,
     article_reference_df: pd.DataFrame | None = None,
+    openalex_citation_index: OpenAlexCitationIndex | None = None,
     candidate_author_ids: set[str] | None = None,
 ) -> PublicationEvidenceIndex | None:
     """Index article-level evidence used by Table 2 publication rules.
 
     :param article_author_df: Publication rows linking articles and authors.
     :param article_reference_df: Optional citing-to-cited article edges.
+    :param openalex_citation_index: Compact OpenAlex citation evidence.
     :param candidate_author_ids: Optional IDs used to filter source rows.
     :return: Publication evidence index, or ``None`` when input evidence is absent.
     """
@@ -231,17 +249,23 @@ def build_publication_evidence_index(
     ):
         return None
 
-    author_articles: dict[str, set[str]] = defaultdict(set)
-    author_cited_references: dict[str, set[str]] = defaultdict(set)
-    citing_papers_by_cited_article: dict[str, set[str]] = defaultdict(set)
+    author_articles: dict[str, set[str | int]] = defaultdict(set)
+    author_cited_references: dict[str, set[str | int]] = defaultdict(set)
+    citing_papers_by_cited_article: dict[str | int, set[str | int]] = defaultdict(set)
+    if openalex_citation_index is not None:
+        for cited_id, citing_ids in openalex_citation_index.citing_by_work.items():
+            citing_papers_by_cited_article[cited_id] = cast(set[str | int], citing_ids)
     author_journals: dict[str, set[str]] = defaultdict(set)
     author_coauthor_ids: dict[str, set[str]] = defaultdict(set)
     author_coauthor_names: dict[str, set[str]] = defaultdict(set)
     author_publication_cities: dict[str, set[str]] = defaultdict(set)
     author_publication_countries: dict[str, set[str]] = defaultdict(set)
+    author_linked_cities: dict[str, set[str]] = defaultdict(set)
+    author_linked_countries: dict[str, set[str]] = defaultdict(set)
     author_grant_numbers: dict[str, set[str]] = defaultdict(set)
     author_article_subject_codes: dict[str, set[int]] = defaultdict(set)
     author_article_subject_labels: dict[str, dict[int, str]] = defaultdict(dict)
+    author_openalex_field_ids: dict[str, set[str]] = defaultdict(set)
 
     author_id_column = next(
         (
@@ -263,20 +287,32 @@ def build_publication_evidence_index(
         if article_author_df.empty:
             return None
 
-    article_author_df = attach_article_references(
-        article_author_df=article_author_df,
-        article_reference_df=article_reference_df,
-        author_id_column=author_id_column,
-    )
+    if openalex_citation_index is None:
+        article_author_df = attach_article_references(
+            article_author_df=article_author_df,
+            article_reference_df=article_reference_df,
+            author_id_column=author_id_column,
+        )
 
     grouped_articles = article_author_df.groupby(EID_COLUMN, dropna=True, sort=False)
     for _, article_rows in grouped_articles:
         row_dict = article_rows.iloc[0].to_dict()
-        source_eid = normalize_identifier(row_dict.get(EID_COLUMN))
-        cited_eids: set[str] = set()
+        source_eid: str | int = normalize_identifier(row_dict.get(EID_COLUMN))
+        if openalex_citation_index is not None and isinstance(source_eid, str) and source_eid:
+            source_eid = openalex_citation_index.encode_work_id(source_eid)
+        cited_eids: set[str | int] = set()
         if CITED_EID in article_rows.columns:
             for value in article_rows[CITED_EID].tolist():
-                cited_eids.update(parse_identifier_collection(value))
+                cited_values = parse_identifier_collection(value)
+                if openalex_citation_index is not None:
+                    cited_eids.update(
+                        openalex_citation_index.encode_work_id(cited_id)
+                        for cited_id in cited_values
+                    )
+                else:
+                    cited_eids.update(cited_values)
+        if openalex_citation_index is not None and isinstance(source_eid, int):
+            cited_eids.update(openalex_citation_index.cited_by_work.get(source_eid, set()))
         author_ids: set[str] = set()
         for value in article_rows[author_id_column].tolist():
             author_ids.update(parse_identifier_collection(value))
@@ -330,6 +366,9 @@ def build_publication_evidence_index(
         )
         article_subject_labels = general_article_subject_areas(row_dict.get(SUBJECT_AREA_COLUMN))
         article_subject_codes = set(article_subject_labels)
+        article_openalex_field_ids = parse_identifier_collection(
+            row_dict.get(OPENALEX_WORK_FIELD_IDS, [])
+        )
 
         for cited_eid in cited_eids:
             if source_eid and cited_eid:
@@ -347,15 +386,31 @@ def build_publication_evidence_index(
             author_coauthor_names[author_id].update(coauthor_names)
             author_publication_cities[author_id].update(publication_cities)
             author_publication_countries[author_id].update(publication_countries)
+            for evidence in row_dict.get(OPENALEX_AUTHOR_AFFILIATION_EVIDENCE) or []:
+                if not isinstance(evidence, dict) or str(evidence.get("author_id")) != author_id:
+                    continue
+                author_linked_cities[author_id].update(
+                    value
+                    for item in evidence.get("cities") or []
+                    if (value := normalize_text(item))
+                )
+                author_linked_countries[author_id].update(
+                    value
+                    for item in evidence.get("countries") or []
+                    if (value := normalize_country(item))
+                )
             author_grant_numbers[author_id].update(grant_numbers)
             author_article_subject_codes[author_id].update(article_subject_codes)
             author_article_subject_labels[author_id].update(article_subject_labels)
+            if article_openalex_field_ids:
+                author_openalex_field_ids[author_id].update(article_openalex_field_ids)
 
-    add_cited_side_reference_edges(
-        article_reference_df=article_reference_df,
-        cited_article_ids=set().union(*author_articles.values()) if author_articles else set(),
-        citing_papers_by_cited_article=citing_papers_by_cited_article,
-    )
+    if openalex_citation_index is None:
+        add_cited_side_reference_edges(
+            article_reference_df=article_reference_df,
+            cited_article_ids=set().union(*author_articles.values()) if author_articles else set(),
+            citing_papers_by_cited_article=citing_papers_by_cited_article,
+        )
 
     if not any(
         [
@@ -367,8 +422,11 @@ def build_publication_evidence_index(
             author_coauthor_names,
             author_publication_cities,
             author_publication_countries,
+            author_linked_cities,
+            author_linked_countries,
             author_grant_numbers,
             author_article_subject_codes,
+            author_openalex_field_ids,
         ]
     ):
         return None
@@ -382,9 +440,12 @@ def build_publication_evidence_index(
         author_coauthor_names=dict(author_coauthor_names),
         author_publication_cities=dict(author_publication_cities),
         author_publication_countries=dict(author_publication_countries),
+        author_linked_cities=dict(author_linked_cities),
+        author_linked_countries=dict(author_linked_countries),
         author_grant_numbers=dict(author_grant_numbers),
         author_article_subject_codes=dict(author_article_subject_codes),
         author_article_subject_labels=dict(author_article_subject_labels),
+        author_openalex_field_ids=dict(author_openalex_field_ids),
     )
 
 
@@ -412,8 +473,8 @@ def filter_article_rows_to_candidate_authors(
 def add_cited_side_reference_edges(
     *,
     article_reference_df: pd.DataFrame | None,
-    cited_article_ids: set[str],
-    citing_papers_by_cited_article: dict[str, set[str]],
+    cited_article_ids: set[str | int],
+    citing_papers_by_cited_article: dict[str | int, set[str | int]],
 ) -> None:
     """Index external papers citing candidate articles for co-citation evidence.
 

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any
@@ -22,6 +24,7 @@ from acib.constants import (
     UNIVERSITY_NAME as UNIVERSITY_NAME_COLUMN,
 )
 from acib.name_disambiguation.constants import (
+    ARTICLE_OPENALEX_FIELD_IDS,
     ARTICLE_PARENT_SUBJECT_CODES,
     ARTICLE_PARENT_SUBJECT_COVERAGE,
     ARTICLE_PARENT_SUBJECT_OVERLAP_CODES,
@@ -52,6 +55,10 @@ from acib.name_disambiguation.constants import (
     INFERRED_CODE_OVERLAP_CODES,
     INFERRED_CODE_OVERLAP_COUNT,
     INFERRED_COVERAGE,
+    OPENALEX_FIELD_COVERAGE,
+    OPENALEX_FIELD_IDS,
+    OPENALEX_FIELD_OVERLAP_COUNT,
+    OPENALEX_FIELD_OVERLAP_IDS,
     OVERLAP_CODES,
     OVERLAP_COUNT,
     PROFILE_PARENT_SUBJECT_CODES,
@@ -70,7 +77,13 @@ from acib.name_disambiguation.constants import (
     TEMPORAL_HARD_SPAN_YEARS,
     UNIVERSITY_AFFILIATION_IDS,
 )
+from acib.name_disambiguation.diagnostics import current_rss_megabytes
+from acib.name_disambiguation.openalex import OpenAlexCitationIndex
 from acib.name_matching.constants import RESEARCHER_NAME, SCOPUS_ID_MAPPING
+from acib.name_matching.openalex_fields import (
+    OPENALEX_FIELD_IDS_COLUMN,
+    OPENALEX_FIELD_LABELS_COLUMN,
+)
 
 from .asjc import is_level_two_asjc_code, level_two_asjc_code, level_two_asjc_codes
 from .clustering import cluster_authors
@@ -92,6 +105,32 @@ _logger = structlog.getLogger(__name__)
 _WORKER_CONTEXT: Any = None
 _INFERRED_ASJC_PARENT_CODES_COLUMN = "inferred_asjc_parent_codes"
 _INFERRED_ASJC_PARENT_CODES_JSON_COLUMN = "inferred_asjc_parent_codes_json"
+_OPENALEX_FIELD_ID_PATTERN = re.compile(r"https://openalex\.org/fields/[1-9]\d*\Z")
+_OPENALEX_SCORE_COLUMNS_TO_DROP = (
+    ARTICLE_PARENT_SUBJECT_CODES,
+    ARTICLE_PARENT_SUBJECT_COVERAGE,
+    ARTICLE_PARENT_SUBJECT_OVERLAP_CODES,
+    ARTICLE_PARENT_SUBJECT_OVERLAP_COUNT,
+    PROFILE_PARENT_SUBJECT_CODES,
+    PROFILE_PARENT_SUBJECT_COVERAGE,
+    PROFILE_PARENT_SUBJECT_OVERLAP_CODES,
+    PROFILE_PARENT_SUBJECT_OVERLAP_COUNT,
+    CLUSTER_LEVEL_TWO_SUBJECT_CODES,
+    CLUSTER_SUBJECT_CODES,
+    CLUSTER_SUBJECT_COUNT,
+    EXACT_INFERRED_COVERAGE,
+    EXACT_OVERLAP_CODES,
+    EXACT_OVERLAP_COUNT,
+    EXACT_SPECIFIC_COVERAGE,
+    EXACT_SPECIFIC_OVERLAP_CODES,
+    EXACT_SPECIFIC_OVERLAP_COUNT,
+    INFERRED_CODE_COVERAGE,
+    INFERRED_CODE_OVERLAP_CODES,
+    INFERRED_CODE_OVERLAP_COUNT,
+    INFERRED_COVERAGE,
+    OVERLAP_CODES,
+    OVERLAP_COUNT,
+)
 
 
 def initialize_disambiguation_worker(context: Any) -> None:
@@ -101,6 +140,11 @@ def initialize_disambiguation_worker(context: Any) -> None:
     """
     global _WORKER_CONTEXT
     _WORKER_CONTEXT = context
+    _logger.info(
+        "Initialized disambiguation scoring worker",
+        pid=os.getpid(),
+        rss_mb=current_rss_megabytes(),
+    )
 
 
 def disambiguate_batch_worker(
@@ -126,6 +170,7 @@ def disambiguate_batches(
     *,
     article_author_df: pd.DataFrame | None = None,
     article_reference_df: pd.DataFrame | None = None,
+    openalex_citation_index: OpenAlexCitationIndex | None = None,
     name_frequency_df: pd.DataFrame | None = None,
     same_author_score_threshold: float = 6.0,
     possible_author_score_threshold: float = 3.0,
@@ -136,6 +181,7 @@ def disambiguate_batches(
     :param author_df: Matched author candidate rows.
     :param article_author_df: Optional publication-author evidence table.
     :param article_reference_df: Optional citation-edge table.
+    :param openalex_citation_index: Optional compact OpenAlex citation evidence.
     :param name_frequency_df: Optional broad author corpus.
     :param same_author_score_threshold: Minimum score for a same-author decision.
     :param possible_author_score_threshold: Minimum score for a possible-match decision.
@@ -149,19 +195,42 @@ def disambiguate_batches(
     if author_df.empty:
         raise ValueError("No author candidates were found in the configured author file.")
 
+    if RESEARCHER_ID_COLUMN_NAME not in author_df.columns:
+        scoring_authors = author_df
+        ambiguous_authors = author_df
+        singleton_authors = author_df.iloc[0:0].copy()
+    else:
+        group_sizes = author_df.groupby(RESEARCHER_ID_COLUMN_NAME)[EID_COLUMN].transform("size")
+        ambiguous_authors = author_df.loc[group_sizes.gt(1)].reset_index(drop=True)
+        singleton_authors = author_df.loc[group_sizes.eq(1)].reset_index(drop=True)
+        scoring_authors = ambiguous_authors
+        _logger.info(
+            "Partitioned author candidates",
+            ambiguous_batch_count=ambiguous_authors[RESEARCHER_ID_COLUMN_NAME].nunique(),
+            ambiguous_author_rows=len(ambiguous_authors),
+            singleton_batch_count=singleton_authors[RESEARCHER_ID_COLUMN_NAME].nunique(),
+            singleton_author_rows=len(singleton_authors),
+        )
+
     _logger.info(
         "Building disambiguation scoring context",
+        scoring_author_rows=len(scoring_authors),
         article_author_rows=0 if article_author_df is None else len(article_author_df),
         article_reference_rows=0 if article_reference_df is None else len(article_reference_df),
         name_frequency_rows=0 if name_frequency_df is None else len(name_frequency_df),
+        rss_mb=current_rss_megabytes(),
     )
     shared_context = build_scoring_context(
-        authors=author_df,
+        authors=scoring_authors,
         article_author_df=article_author_df,
         article_reference_df=article_reference_df,
+        openalex_citation_index=openalex_citation_index,
         name_frequency_df=name_frequency_df,
     )
-    _logger.info("Built disambiguation scoring context")
+    _logger.info(
+        "Built disambiguation scoring context",
+        rss_mb=current_rss_megabytes(),
+    )
 
     if RESEARCHER_ID_COLUMN_NAME not in author_df.columns:
         _logger.info(
@@ -171,22 +240,12 @@ def disambiguate_batches(
         return [disambiguate_batch(sc_id="", authors=author_df, context=shared_context)]
 
     results: list[BatchDisambiguationResult] = []
-    group_sizes = author_df.groupby(RESEARCHER_ID_COLUMN_NAME)[EID_COLUMN].transform("size")
-    ambiguous_authors = author_df.loc[group_sizes.gt(1)].reset_index(drop=True)
-    singleton_authors = author_df.loc[group_sizes.eq(1)].reset_index(drop=True)
-    _logger.info(
-        "Partitioned author candidates",
-        ambiguous_batch_count=ambiguous_authors[RESEARCHER_ID_COLUMN_NAME].nunique(),
-        ambiguous_author_rows=len(ambiguous_authors),
-        singleton_batch_count=singleton_authors[RESEARCHER_ID_COLUMN_NAME].nunique(),
-        singleton_author_rows=len(singleton_authors),
-    )
-
     max_workers = max(1, int(max_workers))
     _logger.info(
         "Processing ambiguous disambiguation batches",
         batch_count=ambiguous_authors[RESEARCHER_ID_COLUMN_NAME].nunique(),
         max_workers=max_workers,
+        rss_mb=current_rss_megabytes(),
     )
     if max_workers == 1:
         for sc_id, batch in ambiguous_authors.groupby(RESEARCHER_ID_COLUMN_NAME, sort=True):
@@ -393,6 +452,14 @@ def select_final_author(
     :param context: Optional shared scoring context.
     :return: Final selection and the per-cluster score table.
     """
+    if OPENALEX_FIELD_IDS_COLUMN in authors.columns:
+        return select_openalex_final_author(
+            authors=authors,
+            clusters=clusters,
+            sc_id=sc_id,
+            context=context,
+        )
+
     inferred_codes = sorted(extract_inferred_asjc_codes(authors=authors))
     inferred_labels = sorted(extract_inferred_asjc_labels(authors=authors))
     researcher_gender = infer_researcher_gender(authors=authors)
@@ -603,6 +670,289 @@ def select_final_author(
         ),
         selection_scores,
     )
+
+
+def select_openalex_final_author(
+    *,
+    authors: pd.DataFrame,
+    clusters: pd.DataFrame,
+    sc_id: str,
+    context: Any = None,
+) -> tuple[FinalAuthorSelection, pd.DataFrame]:
+    """Select an OpenAlex cluster using inferred and article Field evidence.
+
+    The unique-best comparison follows the Scopus ASJC final-selection ordering,
+    but OpenAlex uses only researcher-inferred Fields and Work-derived article
+    Fields. Work Fields are not aggregated as a second profile signal.
+
+    :param authors: Prepared OpenAlex candidates for one researcher.
+    :param clusters: Cluster memberships for those candidates.
+    :param sc_id: Researcher identifier.
+    :param context: Optional shared scoring context.
+    :return: Final selection and per-cluster Field evidence.
+    """
+    inferred_fields = sorted(
+        {
+            field_id
+            for value in authors[OPENALEX_FIELD_IDS_COLUMN].dropna()
+            for field_id in _openalex_field_ids(value)
+        }
+    )
+    field_labels = _openalex_field_labels(authors)
+    gender = infer_researcher_gender(authors)
+    if clusters.empty:
+        return (
+            _openalex_selection(
+                sc_id=sc_id,
+                status="manual_selection_required",
+                reason="no clusters available",
+                inferred_fields=inferred_fields,
+                field_labels=field_labels,
+            ),
+            pd.DataFrame(),
+        )
+
+    scores = build_openalex_final_selection_scores(
+        authors=authors,
+        clusters=clusters,
+        inferred_fields=inferred_fields,
+        researcher_gender=gender,
+        context=context,
+    )
+    selectable = scores.loc[scores[GENDER_COMPATIBLE]].reset_index(drop=True)
+    if selectable.empty:
+        return (
+            _openalex_selection(
+                sc_id=sc_id,
+                status="manual_selection_required",
+                reason="no cluster has compatible high-confidence researcher gender evidence",
+                inferred_fields=inferred_fields,
+                field_labels=field_labels,
+                possible_clusters=scores[AUTHOR_IDS].tolist(),
+            ),
+            scores,
+        )
+    if clusters[CLUSTER_ID].nunique() == 1:
+        best = selectable.iloc[0]
+        return (
+            _openalex_selection(
+                sc_id=sc_id,
+                status="assigned_single_cluster",
+                reason="only one cluster remained after disambiguation",
+                inferred_fields=inferred_fields,
+                field_labels=field_labels,
+                best=best,
+                possible_clusters=[best[AUTHOR_IDS]],
+            ),
+            scores,
+        )
+
+    if inferred_fields:
+        ranked = selectable.sort_values(
+            [OPENALEX_FIELD_OVERLAP_COUNT, OPENALEX_FIELD_COVERAGE, CLUSTER_SIZE],
+            ascending=[False, False, False],
+        ).reset_index(drop=True)
+        best = ranked.iloc[0]
+        second = ranked.iloc[1] if len(ranked) > 1 else None
+        best_rank = (
+            int(best[OPENALEX_FIELD_OVERLAP_COUNT]),
+            float(best[OPENALEX_FIELD_COVERAGE]),
+        )
+        second_rank = (
+            (int(second[OPENALEX_FIELD_OVERLAP_COUNT]), float(second[OPENALEX_FIELD_COVERAGE]))
+            if second is not None
+            else (-1, -1.0)
+        )
+        if best_rank[0] > 0 and best_rank > second_rank:
+            return (
+                _openalex_selection(
+                    sc_id=sc_id,
+                    status="assigned_by_article_field",
+                    reason="best cluster has a unique strongest OpenAlex Field overlap",
+                    inferred_fields=inferred_fields,
+                    field_labels=field_labels,
+                    best=best,
+                    possible_clusters=ranked[AUTHOR_IDS].tolist(),
+                ),
+                scores,
+            )
+    given_name_selection = select_by_researcher_given_name(
+        selectable_scores=selectable,
+        selection_scores=scores,
+        sc_id=sc_id,
+        inferred_codes=[],
+        inferred_labels=[],
+    )
+    if given_name_selection is not None:
+        given_name_selection.inferred_openalex_field_ids = inferred_fields
+        given_name_selection.inferred_openalex_field_labels = field_labels
+        chosen = scores.loc[scores[CLUSTER_ID].eq(given_name_selection.selected_cluster_id)]
+        if not chosen.empty:
+            given_name_selection.openalex_field_ids = list(chosen.iloc[0][OPENALEX_FIELD_IDS])
+        return given_name_selection, scores
+    return (
+        _openalex_selection(
+            sc_id=sc_id,
+            status="manual_selection_required",
+            reason=(
+                "multiple clusters remain and inferred OpenAlex Field evidence is not decisive"
+                if inferred_fields
+                else "multiple clusters remain and no inferred OpenAlex Fields are available"
+            ),
+            inferred_fields=inferred_fields,
+            field_labels=field_labels,
+            possible_clusters=scores[AUTHOR_IDS].tolist(),
+        ),
+        scores,
+    )
+
+
+def build_openalex_final_selection_scores(
+    *,
+    authors: pd.DataFrame,
+    clusters: pd.DataFrame,
+    inferred_fields: list[str],
+    researcher_gender: GenderEvidence,
+    context: Any = None,
+) -> pd.DataFrame:
+    """Build per-cluster OpenAlex Field overlap diagnostics.
+
+    :param authors: OpenAlex candidate rows.
+    :param clusters: Cluster membership rows.
+    :param inferred_fields: Researcher-side OpenAlex Field IDs.
+    :param researcher_gender: Researcher gender evidence.
+    :param context: Optional publication evidence context.
+    :return: One evidence row per candidate cluster.
+    """
+    article_fields = (
+        context.publication_index.author_openalex_field_ids
+        if context is not None and context.publication_index is not None
+        else {}
+    )
+    author_ids = authors[AUTHOR_SCOPUS_ID_COLUMN].astype(str)
+    gender_by_id = dict(
+        zip(
+            author_ids,
+            authors[CANONICAL_GIVEN_NAME].fillna("").astype(str),
+            strict=False,
+        )
+    )
+    rows: list[dict[str, object]] = []
+    for cluster_id, members in clusters.groupby(CLUSTER_ID, sort=True):
+        member_ids = members[AUTHOR_SCOPUS_ID_COLUMN].astype(str).tolist()
+        cluster_fields = sorted(
+            {field for author_id in member_ids for field in article_fields.get(author_id, set())}
+        )
+        overlap = sorted(set(inferred_fields) & set(cluster_fields))
+        coverage = len(overlap) / len(inferred_fields) if inferred_fields else 0.0
+        cluster_gender = combine_gender_evidence(
+            infer_gender_from_given_name(gender_by_id.get(author_id, ""))
+            for author_id in member_ids
+        )
+        rows.append(
+            {
+                CURRENT_AFFILIATION_OVERLAP_COUNT: 0,
+                CLUSTER_ID: int(cluster_id),
+                DISAMBIGUATED_CLUSTER_ID: members[DISAMBIGUATED_CLUSTER_ID].iloc[0],
+                CLUSTER_SIZE: int(members[CLUSTER_SIZE].iloc[0]),
+                AUTHOR_IDS: member_ids,
+                OPENALEX_FIELD_IDS: cluster_fields,
+                ARTICLE_OPENALEX_FIELD_IDS: cluster_fields,
+                OPENALEX_FIELD_OVERLAP_IDS: overlap,
+                OPENALEX_FIELD_OVERLAP_COUNT: len(overlap),
+                OPENALEX_FIELD_COVERAGE: round(coverage, 3),
+                RESEARCHER_GIVEN_NAME_OVERLAP_COUNT: 0,
+                RESEARCHER_GIVEN_NAME_COVERAGE: 0.0,
+                ARTICLE_PARENT_SUBJECT_OVERLAP_COUNT: 0,
+                ARTICLE_PARENT_SUBJECT_COVERAGE: 0.0,
+                INFERRED_CODE_OVERLAP_COUNT: 0,
+                INFERRED_CODE_COVERAGE: 0.0,
+                EXACT_SPECIFIC_OVERLAP_COUNT: 0,
+                EXACT_SPECIFIC_COVERAGE: 0.0,
+                OVERLAP_COUNT: 0,
+                INFERRED_COVERAGE: 0.0,
+                RESEARCHER_GENDER: researcher_gender.gender,
+                RESEARCHER_GENDER_SOURCE: researcher_gender.source_name,
+                CLUSTER_GENDER: cluster_gender.gender,
+                CLUSTER_GENDER_SOURCE: cluster_gender.source_name,
+                GENDER_COMPATIBLE: not genders_conflict(researcher_gender, cluster_gender),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _openalex_selection(
+    *,
+    sc_id: str,
+    status: str,
+    reason: str,
+    inferred_fields: list[str],
+    field_labels: list[str],
+    best: pd.Series | None = None,
+    possible_clusters: list[list[str]] | None = None,
+) -> FinalAuthorSelection:
+    """Construct the shared final-selection model for OpenAlex output."""
+    return FinalAuthorSelection(
+        sc_id=sc_id,
+        status=status,
+        selected_cluster_id=int(best[CLUSTER_ID]) if best is not None else None,
+        selected_disambiguated_cluster_id=(
+            str(best[DISAMBIGUATED_CLUSTER_ID]) if best is not None else ""
+        ),
+        selected_author_ids=list(best[AUTHOR_IDS]) if best is not None else [],
+        possible_clusters=possible_clusters or [],
+        inferred_asjc_codes=[],
+        scopus_asjc_codes=[],
+        inferred_asjc_labels=[],
+        reason=reason,
+        inferred_openalex_field_ids=inferred_fields,
+        inferred_openalex_field_labels=field_labels,
+        openalex_field_ids=(list(best[OPENALEX_FIELD_IDS]) if best is not None else []),
+    )
+
+
+def _openalex_field_ids(value: object) -> list[str]:
+    """Parse inferred Field IDs while retaining canonical string identifiers."""
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = [value] if _OPENALEX_FIELD_ID_PATTERN.fullmatch(value.strip()) else []
+    else:
+        parsed = value
+    if not isinstance(parsed, (list, tuple, set)):
+        return []
+    return sorted(
+        {
+            str(field_id)
+            for field_id in parsed
+            if isinstance(field_id, str) and _OPENALEX_FIELD_ID_PATTERN.fullmatch(field_id)
+        }
+    )
+
+
+def _openalex_field_labels(authors: pd.DataFrame) -> list[str]:
+    """Return sorted distinct labels aligned with valid inferred OpenAlex Fields."""
+    if OPENALEX_FIELD_LABELS_COLUMN not in authors:
+        return []
+    labels: set[str] = set()
+    for value in authors[OPENALEX_FIELD_LABELS_COLUMN].dropna():
+        parsed = value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = []
+        if isinstance(parsed, list):
+            labels.update(str(label) for label in parsed if isinstance(label, str) and label)
+    return sorted(labels)
+
+
+def openalex_field_ids_by_cluster(scores: pd.DataFrame) -> list[list[str]]:
+    """Return cluster Field ID lists from a score table."""
+    if OPENALEX_FIELD_IDS not in scores:
+        return []
+    return [list(value) for value in scores[OPENALEX_FIELD_IDS]]
 
 
 def select_by_current_affiliation(

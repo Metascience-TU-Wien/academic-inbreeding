@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from acib.pipeline.config import load_name_disambiguation_config
+from acib.pipeline.config import PROJECT_ROOT, load_name_disambiguation_config
 
 
 def write_pipeline_config(path: Path, *, section_options: list[str] | None = None) -> None:
@@ -65,6 +65,41 @@ def test_config_resolves_shared_inputs_and_six_output_paths(tmp_path: Path) -> N
     ]
 
 
+def test_openalex_config_passes_source_and_affiliation_dimension(tmp_path: Path) -> None:
+    """Resolve OpenAlex source and its configured institution dimension."""
+    config_path = tmp_path / "openalex.toml"
+    config_path.write_text(
+        """[data]
+source = "openalex"
+researcher_file_path = "data/researchers.csv"
+path = "data/openalex_authors.parquet"
+article_author_file_path = "data/works.parquet"
+article_reference_file_path = "data/citation_edges.parquet"
+author_affiliations_file_path = "data/institutions.parquet"
+
+[name_matching]
+[name_matching.outputs]
+directory = "outputs/matching"
+
+[name_disambiguation]
+max_workers = 4
+openalex_scan_workers = 2
+[name_disambiguation.outputs]
+directory = "outputs/disambiguation"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_name_disambiguation_config(config_path)
+
+    assert config.source == "openalex"
+    assert config.article_author_file_path == PROJECT_ROOT / "data/works.parquet"
+    assert config.article_reference_file_path == PROJECT_ROOT / "data/citation_edges.parquet"
+    assert config.author_affiliations_file_path == PROJECT_ROOT / "data/institutions.parquet"
+    assert config.max_workers == 4
+    assert config.effective_openalex_scan_workers == 2
+
+
 def test_disambiguation_config_preserves_defaults(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     write_pipeline_config(config_path)
@@ -73,6 +108,7 @@ def test_disambiguation_config_preserves_defaults(tmp_path: Path) -> None:
     assert config.same_author_score_threshold == 6.0
     assert config.possible_author_score_threshold == 3.0
     assert config.max_workers == 1
+    assert config.effective_openalex_scan_workers == 1
 
 
 def test_disambiguation_config_rejects_duplicate_upstream_and_external_paths(

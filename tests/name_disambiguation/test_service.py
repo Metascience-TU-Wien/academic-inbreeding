@@ -1,8 +1,11 @@
 # Copyright © 2026 TU Wien
 
+from typing import Any
+
 import pandas as pd
 import pytest
 
+from acib.name_disambiguation import service
 from acib.name_disambiguation.output import (
     collect_final_selections,
     collect_pair_decisions,
@@ -23,6 +26,25 @@ def test_disambiguation_keeps_batch_order_and_singleton_status(
         == "only one candidate author exists for this sc_id; disambiguation not required"
     )
     assert len(collect_pair_decisions(results)) == 1
+
+
+def test_scoring_context_contains_only_multi_candidate_researchers(
+    author_frame: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, set[str]] = {}
+    original_builder = service.build_scoring_context
+
+    def capture_builder(*args: Any, **kwargs: Any) -> Any:
+        scoring_authors = kwargs["authors"]
+        captured["researcher_ids"] = set(scoring_authors["sc_id"].astype(str))
+        return original_builder(*args, **kwargs)
+
+    monkeypatch.setattr(service, "build_scoring_context", capture_builder)
+
+    disambiguate_batches(author_frame)
+
+    assert captured["researcher_ids"] == {"1"}
 
 
 def test_empty_author_batch_is_rejected() -> None:

@@ -574,6 +574,148 @@
   `PYTHONHASHSEED`; the source pipeline does not enforce a seed. This existing
   nondeterminism is documented rather than hidden by altering the original.
 
+## Approved OpenAlex Works input for name disambiguation
+
+- Following the user's request, author-scoped city/country evidence adapted from
+  OpenAlex Works is kept separate from generic publication-address evidence and
+  is supplied to the existing `author_address_match` rule (+4). The same
+  OpenAlex affiliation evidence is no longer also added to the +2
+  `publication_address_match` index, preventing double counting. Generic
+  publication-address evidence continues through its existing +2 rule.
+  Scopus address indexing and scoring are unchanged.
+- Phase 2 adds a source-specific boundary adapter for the observed OpenAlex Works
+  Parquet schema. DuckDB vectorizes the nested author-ID membership predicate
+  over the Parquet input and returns only candidate-authored Works as bounded
+  Arrow batches; only those rows are adapted to existing evidence columns. The
+  OpenAlex institution dimension is joined by exact institution ID for city
+  evidence; no parent hierarchy is used.
+- Citation edges are semi-joined in DuckDB against IDs from those candidate-
+  authored Works, then streamed in Arrow batches into compact forward/reverse
+  citation sets used directly by scoring. The complete 553M-edge input and a
+  full filtered-edge DataFrame are not loaded into pandas. The matching source
+  selector controls source-aware matcher schema validation and the OpenAlex
+  external affiliation dimension is taken from canonical `[data]` ownership.
+- Journal source ID, ISSN/ISSN-L, and display name are supplied as alternatives
+  in the existing journal evidence set, so a source contributes at most one
+  existing journal-overlap score. Award IDs and funder-award IDs are used as
+  grant evidence; funder organization IDs are excluded. Countries are adapted
+  from author/institution evidence. OpenAlex topic/field identifiers are not
+  mapped to Scopus ASJC; the Scopus loading and scoring branch is unchanged.
+- Following the user's explicit approval, Work `topics[].field.id` values now
+  contribute article-level pair evidence at the existing 3.0 weight and to a
+  source-specific OpenAlex final-cluster comparison. `primary_topic.field.id`
+  is used only when a Work has no topic Field IDs. A uniquely strongest
+  article-Field match receives `assigned_by_article_field`; ties continue to
+  the existing name-based disambiguation fallback or manual review. Work Fields
+  are not aggregated into a second profile-evidence layer because the observed
+  candidate-author input has no separate per-author OpenAlex Field profile.
+  OpenAlex final-selection records expose inferred Field IDs/labels and selected
+  cluster Field IDs instead of Scopus ASJC columns. The Scopus selection and
+  output branches remain source-specific and unchanged.
+- Phase 3 static checks: Ruff and the configured pre-commit hooks passed on all
+  changed files, including the configured mypy hook; `git diff --check` passed.
+  A direct `uv run mypy` invocation could not start because the environment lacks
+  the configured Pydantic plugin. No tests were run during Phase 2.
+
+### Phase 4 — OpenAlex Works verification
+
+- Added tests for bounded Works scanning, candidate-author filtering, string ID
+  preservation, journal source/type filtering, award identifier evidence,
+  author-specific city/country attribution, citation-edge semi-joining, and
+  source-aware matcher validation. Progress events now report Works scan totals,
+  candidate retention, and DuckDB citation-query/fetch status. An end-to-end
+  fixture confirms ORCID, journal, grant, and publication-address score
+  components reach persisted decisions.
+- `uv run pytest tests/name_disambiguation/
+  tests/integration/test_name_disambiguation_workflow.py
+  tests/integration/test_openalex_name_disambiguation_workflow.py -q`:
+  **82 passed**.
+- Scopus regression comparison: ran the pre-extension `HEAD` implementation
+  from an isolated source snapshot and the updated implementation using the
+  same configured Scopus inputs, `PYTHONHASHSEED=0`, and worker count. Pair
+  decisions (13,847), clusters (40,371), final selections (32,953), and
+  selection-score rows (8,279) matched exactly by DataFrame values and columns.
+  A comparison against older persisted outputs without a controlled hash seed
+  differed in some scores; this is consistent with the already documented
+  set-iteration nondeterminism and is not used as the equivalence comparison.
+- Ruff and the full configured pre-commit hook set, including mypy, passed on
+  the changed files after formatting. `git diff --check` passed.
+- The full configured OpenAlex dataset run was not performed: the current config
+  output directory does not yet contain its configured resolved-matcher artifact,
+  and the candidate-filtered citation result size has not been measured. Full
+  run performance and memory use therefore remain unverified.
+- OpenAlex Work-Field Phase 4 coverage adds focused checks for extraction from
+  `topics[].field.id`, fallback to `primary_topic.field.id`, the 3.0-point
+  `article_field_overlap` component, unique-best multi-cluster assignment and
+  unresolved ties, source-specific final-selection serialization, and the text
+  report's OpenAlex Field rendering. Scopus article-ASJC scoring and ASJC output
+  serialization have regression assertions.
+- The OpenAlex Parquet fixtures were completed with the observed `topics` and
+  `primary_topic` columns. Citation-index expectations now reflect the approved
+  compact numeric Work-ID representation. An initial full-stage run exposed
+  that empty OpenAlex Field sets were creating index entries and suppressing
+  Scopus ASJC scoring; index construction now omits empty sets, and the Scopus
+  article-ASJC regression assertion passes.
+- `uv run pytest tests/name_disambiguation/
+  tests/integration/test_name_disambiguation_workflow.py
+  tests/integration/test_openalex_name_disambiguation_workflow.py -q`:
+  **93 passed**. Ruff and configured pre-commit hooks, including Flake8, Black,
+  mypy, and isort, passed on the changed implementation and test files;
+  `git diff --check` passed.
+- No full OpenAlex dataset run or fresh full-data Scopus source-versus-target
+  output comparison was performed for this Field addition. The Field-specific
+  selector, serialization, and Scopus scoring/output branches were verified
+  with deterministic tests; full-data equivalence and resource use remain
+  unverified.
+- After the user's Phase 4 performance approval, replaced the serial Python
+  membership loop over every Work with Arrow batch reads and DuckDB's vectorized
+  `list_transform`/`list_has_any` nested-list filter. The default scan batch was
+  raised to 50,000 Works, and progress events report actual source rows scanned
+  and percentage every 100,000 Works (rather than a non-informative
+  "still-running" heartbeat). Evidence adaptation and Scopus behavior remain
+  unchanged. Focused Phase 4 tests, Ruff, and configured pre-commit hooks passed.
+  Full-dataset speed and memory use still need measurement.
+- OpenAlex Works batches now use the existing
+  `[name_disambiguation].max_workers` setting: batches are filtered/adapted in
+  parallel with one DuckDB thread per worker, while limiting in-flight batches
+  to the configured worker count. This avoids oversubscribing DuckDB and keeps
+  the parallel work bounded; the same setting continues to control scoring
+  workers. The configured value defaults to one unless set in TOML.
+- Citation filtering no longer accumulates pandas chunks and concatenates the
+  full filtered edge table, nor performs a large SQL `DISTINCT` hash
+  aggregation. DuckDB results are consumed incrementally into the exact
+  directional sets the scoring index needs; duplicate citation edges collapse
+  naturally in those sets. A focused regression test compares the compact
+  citation evidence with the previous DataFrame-based scoring index.
+- OpenAlex Work IDs in the citation and scoring indexes are represented by
+  their numeric `W` identifier instead of repeated URL strings. The conversion
+  accepts only canonical `https://openalex.org/W<digits>` IDs and fails clearly
+  on other forms, avoiding collisions from lossy parsing. Scoring uses the same
+  integer identity for candidate Works, cited Works, and citing Works; Scopus
+  IDs and matching/source artifacts remain unchanged. Memory savings and
+  behavioral equivalence still require Phase 4 verification.
+- The OpenAlex adapter already projects only five source fields from Works;
+  source fields such as topics, DOI, and title are never loaded. Removed three
+  additional per-Work columns (`city`, `country`, and `country_code`) that were
+  always emitted as empty lists because affiliation places are author-specific.
+  The remaining OpenAlex evidence columns feed author, journal, grant,
+  affiliation, or ORCID scoring.
+- Added RSS checkpoints after Works scanning, Citation-index construction,
+  scoring-context construction, and before ambiguous-batch processing; each
+  scoring worker also logs its process ID and RSS. The new
+  `[name_disambiguation].openalex_scan_workers` setting controls Works filtering
+  independently from `max_workers`, which remains the scoring process count.
+  When omitted, scan workers default to the configured `max_workers`.
+- After the scoring context has consumed the compact citation maps, the
+  intermediate maps are explicitly cleared so they do not remain alongside the
+  final scoring index.
+- OpenAlex publication/citation evidence is now loaded only for author rows in
+  `sc_id` groups with more than one row, matching the existing disambiguation
+  service's exact ambiguity rule. Singleton rows still receive their existing
+  direct assignment and do not use pairwise scoring context. Duplicate author
+  rows are not silently deduplicated; evidence author IDs are selected using
+  group row counts, as in the scoring service.
+
 ## Scope
 
 The source project is `name-matching-playground`, managed with Poetry. The target is this repository, `academic-inbreeding`. Migration is incremental: dependency/build setup comes first; application code and tests are not part of Phase 1.

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from acib.name_disambiguation.models import BatchDisambiguationResult
+from acib.name_disambiguation.openalex import OpenAlexCitationIndex
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,7 @@ class NameDisambiguationInputs:
     matched_researchers: pd.DataFrame
     article_authors: pd.DataFrame
     article_references: pd.DataFrame
+    openalex_citation_index: OpenAlexCitationIndex | None = None
 
 
 @dataclass(frozen=True, slots=True)

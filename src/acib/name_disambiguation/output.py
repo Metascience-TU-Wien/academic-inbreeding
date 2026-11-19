@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import asdict
 from typing import Any
 
 import pandas as pd
@@ -37,7 +36,10 @@ from acib.name_disambiguation.constants import (
     SELECTED_AUTHOR_IDS,
     SELECTED_HISTORY,
 )
-from acib.name_disambiguation.models import BatchDisambiguationResult
+from acib.name_disambiguation.models import (
+    BatchDisambiguationResult,
+    final_author_selection_record,
+)
 from acib.name_disambiguation.reporting import render_json_report, render_text_report
 from acib.name_disambiguation.results import NameDisambiguationResult
 from acib.name_disambiguation.scoring_evidence import (
@@ -173,6 +175,7 @@ def _write_result_outputs(
                 batch_result.clusters,
                 batch_result.final_selection,
                 batch_result.final_selection_scores,
+                source=config.source,
             ).rstrip()
             for batch_result in result.batch_results
         ).rstrip()
@@ -186,6 +189,7 @@ def _write_result_outputs(
                 batch_result.clusters,
                 batch_result.final_selection,
                 batch_result.final_selection_scores,
+                source=config.source,
             ),
         }
         for batch_result in result.batch_results
@@ -271,7 +275,11 @@ def collect_final_selections(batch_results: list[BatchDisambiguationResult]) -> 
     for result in batch_results:
         history = author_history_map(result.authors)
         current_affiliations = current_affiliation_ids_by_author(result.authors)
-        row = asdict(result.final_selection)
+        is_openalex = "inferred_openalex_field_ids" in result.authors.columns
+        row = final_author_selection_record(
+            result.final_selection,
+            source="openalex" if is_openalex else "scopus",
+        )
         row[RESEARCHER_NAME] = first_author_value(result.authors, RESEARCHER_NAME)
         row[PERSON_TITLE] = first_author_value(result.authors, PERSON_TITLE)
         row[UNIVERSITY_NAME] = first_author_value(result.authors, UNIVERSITY_NAME)

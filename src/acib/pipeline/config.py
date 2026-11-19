@@ -255,14 +255,22 @@ def load_name_disambiguation_config(path: str | Path) -> NameDisambiguationConfi
     data = _table(raw, "data", required=False)
     article_author = _data_path(data, "article_author_file_path", required=True)
     article_reference = _data_path(data, "article_reference_file_path", required=True)
+    author_affiliations = (
+        _data_path(data, "author_affiliations_file_path", required=True)
+        if matching.source == "openalex"
+        else None
+    )
     assert article_author is not None and article_reference is not None
     reporting = section.get("enable_reporting", True)
     if not isinstance(reporting, bool):
         raise TypeError("name_disambiguation.enable_reporting must be a TOML boolean")
+    max_workers = _positive_integer(section, "max_workers", 1)
     return NameDisambiguationConfig(
         matching_output=matching.outputs.resolved_researchers,
         article_author_file_path=article_author,
         article_reference_file_path=article_reference,
+        source=matching.source,
+        author_affiliations_file_path=author_affiliations,
         outputs=_load_disambiguation_outputs(section),
         enable_reporting=reporting,
         same_author_score_threshold=_nonnegative_number(
@@ -271,7 +279,8 @@ def load_name_disambiguation_config(path: str | Path) -> NameDisambiguationConfi
         possible_author_score_threshold=_nonnegative_number(
             section, "possible_author_score_threshold", 3.0
         ),
-        max_workers=_positive_integer(section, "max_workers", 1),
+        max_workers=max_workers,
+        openalex_scan_workers=_positive_integer(section, "openalex_scan_workers", max_workers),
     )
 
 

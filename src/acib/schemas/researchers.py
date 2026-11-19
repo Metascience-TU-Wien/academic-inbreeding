@@ -22,6 +22,9 @@ from acib.name_disambiguation.constants import (
     CURRENT_AFFILIATION_IDS,
     FINAL_SELECTION_STATUS_VALUES,
     INFERRED_ASJC_LABELS,
+    INFERRED_OPENALEX_FIELD_IDS,
+    INFERRED_OPENALEX_FIELD_LABELS,
+    OPENALEX_FIELD_IDS,
     POSSIBLE_CLUSTER_HISTORY,
     POSSIBLE_CLUSTERS,
     SCOPUS_ASJC_CODES,
@@ -109,9 +112,18 @@ class ResearcherDisambiguationSelectionSchema(pa.DataFrameModel):
     )
     selected_author_ids: Series[object] = pa.Field(alias=SELECTED_AUTHOR_IDS, nullable=False)
     possible_clusters: Series[object] = pa.Field(alias=POSSIBLE_CLUSTERS, nullable=False)
-    inferred_asjc_codes: Series[object] = pa.Field(alias=INFERRED_ASJC_CODES, nullable=False)
-    scopus_asjc_codes: Series[object] = pa.Field(alias=SCOPUS_ASJC_CODES, nullable=False)
-    inferred_asjc_labels: Series[object] = pa.Field(alias=INFERRED_ASJC_LABELS, nullable=False)
+    inferred_asjc_codes: Series[object] | None = pa.Field(alias=INFERRED_ASJC_CODES, nullable=True)
+    scopus_asjc_codes: Series[object] | None = pa.Field(alias=SCOPUS_ASJC_CODES, nullable=True)
+    inferred_asjc_labels: Series[object] | None = pa.Field(
+        alias=INFERRED_ASJC_LABELS, nullable=True
+    )
+    inferred_openalex_field_ids: Series[object] | None = pa.Field(
+        alias=INFERRED_OPENALEX_FIELD_IDS, nullable=True
+    )
+    inferred_openalex_field_labels: Series[object] | None = pa.Field(
+        alias=INFERRED_OPENALEX_FIELD_LABELS, nullable=True
+    )
+    openalex_field_ids: Series[object] | None = pa.Field(alias=OPENALEX_FIELD_IDS, nullable=True)
     reason: Series[str] = pa.Field(alias=SELECTION_REASON, nullable=False)
     researcher_name: Series[str] | None = pa.Field(alias=RESEARCHER_NAME, nullable=True)
     person_title: Series[str] | None = pa.Field(alias=PERSON_TITLE, nullable=True)
@@ -137,15 +149,16 @@ class ResearcherDisambiguationSelectionSchema(pa.DataFrameModel):
     @pa.check(SELECTED_DISAMBIGUATED_CLUSTER_ID)
     @classmethod
     def selected_author_ids_are_integral(cls, values: pd.Series) -> pd.Series:
-        """Allow missing selected IDs but reject fractional or malformed values.
+        """Allow numeric source IDs or stable URL identifiers.
 
-        :param values: Selected Scopus author identifiers.
+        :param values: Selected author identifiers.
         :return: Row-wise identifier validity mask.
         """
         return values.map(
             lambda value: pd.isna(value)
             or (isinstance(value, str) and not value.strip())
             or _is_valid_identifier(value)
+            or _is_valid_author_identifier(value)
         )
 
     class Config:
@@ -168,3 +181,18 @@ def _is_valid_identifier(value: Any) -> bool:
     if isinstance(value, float):
         return math.isfinite(value) and value.is_integer() and value >= 0
     return isinstance(value, str) and value.strip().isdigit()
+
+
+def _is_valid_author_identifier(value: Any) -> bool:
+    """Check an opaque external author ID without numeric coercion.
+
+    :param value: Source author identifier.
+    :return: Whether the value is a nonempty OpenAlex URL identifier.
+    """
+    prefix = "https://openalex.org/"
+    return (
+        isinstance(value, str)
+        and value.startswith(prefix)
+        and bool(value[len(prefix) :])
+        and not any(character.isspace() for character in value)
+    )

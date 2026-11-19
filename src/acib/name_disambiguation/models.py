@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -191,6 +192,34 @@ class FinalAuthorSelection:
     scopus_asjc_codes: list[int] | list[list[int]]
     inferred_asjc_labels: list[str]
     reason: str
+    inferred_openalex_field_ids: list[str] = field(default_factory=list)
+    inferred_openalex_field_labels: list[str] = field(default_factory=list)
+    openalex_field_ids: list[str] = field(default_factory=list)
+
+
+def final_author_selection_record(
+    selection: FinalAuthorSelection,
+    *,
+    source: Literal["scopus", "openalex"],
+) -> dict[str, Any]:
+    """Serialize only the source-appropriate subject fields for one selection.
+
+    :param selection: Final disambiguation decision.
+    :param source: Bibliographic source used by this run.
+    :return: Selection record with ASJC or OpenAlex Field columns, not both.
+    """
+    record = asdict(selection)
+    if source == "openalex":
+        for column in ("inferred_asjc_codes", "scopus_asjc_codes", "inferred_asjc_labels"):
+            record.pop(column, None)
+    else:
+        for column in (
+            "inferred_openalex_field_ids",
+            "inferred_openalex_field_labels",
+            "openalex_field_ids",
+        ):
+            record.pop(column, None)
+    return record
 
 
 @dataclass(slots=True)

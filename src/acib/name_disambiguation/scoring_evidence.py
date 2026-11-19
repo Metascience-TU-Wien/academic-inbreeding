@@ -63,15 +63,31 @@ def score_email_evidence(left: AuthorRecord, right: AuthorRecord) -> list[ScoreC
     ]
 
 
-def score_author_linked_address(left: AuthorRecord, right: AuthorRecord) -> list[ScoreComponent]:
+def score_author_linked_address(
+    left: AuthorRecord,
+    right: AuthorRecord,
+    *,
+    context: ScoringContext | None = None,
+) -> list[ScoreComponent]:
     """Score a linked author-address match on both city and country.
 
     :param left: First author profile.
     :param right: Second author profile.
+    :param context: Optional author-linked publication evidence.
     :return: Address evidence, or an empty list.
     """
-    shared_countries = extract_author_countries(left) & extract_author_countries(right)
-    shared_cities = extract_author_cities(left) & extract_author_cities(right)
+    left_countries = extract_author_countries(left)
+    right_countries = extract_author_countries(right)
+    left_cities = extract_author_cities(left)
+    right_cities = extract_author_cities(right)
+    if context is not None and context.publication_index is not None:
+        index = context.publication_index
+        left_countries.update(index.author_linked_countries.get(left.author_id, set()))
+        right_countries.update(index.author_linked_countries.get(right.author_id, set()))
+        left_cities.update(index.author_linked_cities.get(left.author_id, set()))
+        right_cities.update(index.author_linked_cities.get(right.author_id, set()))
+    shared_countries = left_countries & right_countries
+    shared_cities = left_cities & right_cities
     if not shared_countries or not shared_cities:
         return []
     return [
@@ -313,6 +329,23 @@ def score_subject_areas(
     """
     components: list[ScoreComponent] = []
 
+    if context is not None and context.publication_index is not None:
+        openalex_fields = context.publication_index.author_openalex_field_ids
+        if openalex_fields:
+            shared_fields = sorted(
+                openalex_fields.get(left.author_id, set())
+                & openalex_fields.get(right.author_id, set())
+            )
+            if shared_fields:
+                components.append(
+                    ScoreComponent(
+                        "article_field_overlap",
+                        3.0,
+                        f"shared OpenAlex article Field(s): {preview_values(shared_fields)}",
+                    )
+                )
+            return components
+
     article_overlap = article_subject_codes(left, context) & article_subject_codes(right, context)
     if article_overlap:
         components.append(
@@ -448,11 +481,11 @@ def score_citation_relationships(
 
 def third_party_shared_citers(
     *,
-    left_articles: set[str],
-    right_articles: set[str],
-    left_citers: set[str],
-    right_citers: set[str],
-) -> set[str]:
+    left_articles: set[str | int],
+    right_articles: set[str | int],
+    left_citers: set[str | int],
+    right_citers: set[str | int],
+) -> set[str | int]:
     """Return papers that cite both profiles, excluding their own papers.
 
     Co-citation is third-party evidence: paper X counts only if X cites at
@@ -470,16 +503,16 @@ def third_party_shared_citers(
 
 
 def citing_papers_for_articles(
-    article_ids: set[str],
-    citing_papers_by_cited_article: dict[str, set[str]],
-) -> set[str]:
+    article_ids: set[str | int],
+    citing_papers_by_cited_article: dict[str | int, set[str | int]],
+) -> set[str | int]:
     """Collect citing papers for a set of article IDs.
 
     :param article_ids: Article IDs whose citations are being queried.
     :param citing_papers_by_cited_article: Reverse citation index.
     :return: Unique citing paper IDs.
     """
-    citing_papers: set[str] = set()
+    citing_papers: set[str | int] = set()
     for article_id in article_ids:
         citing_papers.update(citing_papers_by_cited_article.get(article_id, set()))
     return citing_papers

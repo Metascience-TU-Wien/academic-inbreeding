@@ -144,7 +144,7 @@ def score_pair(
 
     components.extend(score_name_evidence(left_names, right_names, context=context))
     components.extend(score_email_evidence(left, right))
-    components.extend(score_author_linked_address(left, right))
+    components.extend(score_author_linked_address(left, right, context=context))
     components.extend(score_current_affiliation_id(left, right))
     components.extend(score_publication_range_consistency(left, right))
     components.extend(score_shared_coauthors(left, right, context=context))

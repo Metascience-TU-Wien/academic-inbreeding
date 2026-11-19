@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict
+from typing import Literal
 
 import pandas as pd
 
+from acib.constants import AUTHOR_ID
 from acib.name_disambiguation.config import NameDisambiguationConfig
 from acib.name_disambiguation.constants import (
     ORCID,
@@ -20,6 +21,8 @@ from acib.name_disambiguation.input import (
     read_dataframe as _read_dataframe,
     validate_matching_artifact as _validate_matching_artifact,
 )
+from acib.name_disambiguation.models import final_author_selection_record
+from acib.name_disambiguation.openalex import openalex_author_orcid_map
 from acib.name_disambiguation.output import (
     collect_name_disambiguation_result,
     save_name_disambiguation_results,
@@ -38,7 +41,12 @@ read_dataframe = _read_dataframe
 validate_matching_artifact = _validate_matching_artifact
 
 
-def prepare_scoring_author_frame(matching: pd.DataFrame) -> pd.DataFrame:
+def prepare_scoring_author_frame(
+    matching: pd.DataFrame,
+    *,
+    source: Literal["scopus", "openalex"] = "scopus",
+    article_authors: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Build the legacy-compatible scientific evidence view of matcher rows.
 
     The matching artifact retains corrected researcher metadata. The original
@@ -48,14 +56,21 @@ def prepare_scoring_author_frame(matching: pd.DataFrame) -> pd.DataFrame:
     remains unchanged.
 
     :param matching: Validated matcher-output rows, including preserved metadata.
+    :param source: Bibliographic source selected for the run.
+    :param article_authors: Adapted Works evidence used to recover OpenAlex ORCIDs.
     :return: A scoring frame with source-compatible researcher evidence.
     """
     evidence = add_inferred_asjc_columns(matching)
     if MATCH_PRIORITY in evidence and _RESEARCHER_EMAIL_COLUMN in evidence:
         matched_rows = evidence[MATCH_PRIORITY].ne(0)
         evidence.loc[matched_rows, _RESEARCHER_EMAIL_COLUMN] = ""
-    if ORCID in evidence:
+    if source == "scopus" and ORCID in evidence:
         evidence[ORCID] = ""
+    elif source == "openalex":
+        orcid_by_author = openalex_author_orcid_map(
+            article_authors if article_authors is not None else pd.DataFrame()
+        )
+        evidence[ORCID] = evidence[AUTHOR_ID].astype("string").map(orcid_by_author).fillna("")
     return evidence
 
 
@@ -73,13 +88,18 @@ def compute_name_disambiguation(
     :param config: Scoring thresholds and worker settings.
     :return: Complete per-batch decisions and collected artifact tables.
     """
-    scoring_frame = prepare_scoring_author_frame(inputs.matched_researchers)
+    scoring_frame = prepare_scoring_author_frame(
+        inputs.matched_researchers,
+        source=config.source,
+        article_authors=inputs.article_authors,
+    )
     authors = prepare_disambiguation_author_frame(scoring_frame)
     authors = DisambiguationAuthorSchema.validate(authors, lazy=True)
     batch_results = disambiguate_batches(
         authors,
         article_author_df=inputs.article_authors,
         article_reference_df=inputs.article_references,
+        openalex_citation_index=inputs.openalex_citation_index,
         same_author_score_threshold=config.same_author_score_threshold,
         possible_author_score_threshold=config.possible_author_score_threshold,
         max_workers=config.max_workers,
@@ -115,9 +135,16 @@ def run_name_disambiguation(
                     batch_result.clusters,
                     batch_result.final_selection,
                     batch_result.final_selection_scores,
+                    source=config.source,
                 )
             )
     save_name_disambiguation_results(result, config, overwrite=overwrite)
     return pd.DataFrame(
-        [asdict(batch_result.final_selection) for batch_result in result.batch_results]
+        [
+            final_author_selection_record(
+                batch_result.final_selection,
+                source=config.source,
+            )
+            for batch_result in result.batch_results
+        ]
     )

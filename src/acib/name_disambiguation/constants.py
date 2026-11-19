@@ -36,6 +36,9 @@ ARTICLE_GRANT_NUMBER = "grant_number"
 ARTICLE_GRANT_NUMBERS = "grant_numbers"
 ARTICLE_GRANT_ID = "grant_id"
 ARTICLE_FUND_NUMBER = "fund_no"
+OPENALEX_AUTHOR_AFFILIATION_EVIDENCE = "openalex_author_affiliation_evidence"
+OPENALEX_AUTHOR_ORCID_EVIDENCE = "openalex_author_orcid_evidence"
+OPENALEX_WORK_FIELD_IDS = "openalex_work_field_ids"
 
 # The source disambiguation loader projects article evidence to these fields.
 ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS = (
@@ -61,6 +64,8 @@ ARTICLE_AUTHOR_EVIDENCE_INPUT_COLUMNS = (
     ARTICLE_GRANT_ID,
     ARTICLE_FUND_NUMBER,
     ARTICLE_AUTHOR_NAMES,
+    OPENALEX_AUTHOR_AFFILIATION_EVIDENCE,
+    OPENALEX_AUTHOR_ORCID_EVIDENCE,
 )
 ARTICLE_REFERENCE_INPUT_COLUMNS = ("citing_eid", CITED_EID)
 
@@ -156,6 +161,13 @@ SELECTED_HISTORY = "selected_history"
 POSSIBLE_CLUSTER_HISTORY = "possible_cluster_history"
 SCOPUS_ASJC_CODES = "scopus_asjc_codes"
 INFERRED_ASJC_LABELS = "inferred_asjc_labels"
+INFERRED_OPENALEX_FIELD_IDS = "inferred_openalex_field_ids"
+INFERRED_OPENALEX_FIELD_LABELS = "inferred_openalex_field_labels"
+OPENALEX_FIELD_IDS = "openalex_field_ids"
+ARTICLE_OPENALEX_FIELD_IDS = "article_openalex_field_ids"
+OPENALEX_FIELD_OVERLAP_IDS = "openalex_field_overlap_ids"
+OPENALEX_FIELD_OVERLAP_COUNT = "openalex_field_overlap_count"
+OPENALEX_FIELD_COVERAGE = "openalex_field_coverage"
 
 # Public evidence labels and hard conflict limits.
 INITIAL_ONLY_LATER_GIVEN_INITIAL_LABEL = "initial_only_later_given_initial"
@@ -185,6 +197,7 @@ FINAL_SELECTION_STATUS_VALUES = frozenset(
         "assigned_by_combined_asjc",
         "assigned_by_article_asjc",
         "assigned_by_profile_asjc",
+        "assigned_by_article_field",
         "manual_selection_required",
     }
 )

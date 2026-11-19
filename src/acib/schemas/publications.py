@@ -34,6 +34,9 @@ from acib.name_disambiguation.constants import (
     CITED_EID,
     CITING_EID,
     ISO3_COUNTRY_CODE,
+    OPENALEX_AUTHOR_AFFILIATION_EVIDENCE,
+    OPENALEX_AUTHOR_ORCID_EVIDENCE,
+    OPENALEX_WORK_FIELD_IDS,
 )
 
 
@@ -67,6 +70,13 @@ class ArticleAuthorEvidenceSchema(pa.DataFrameModel):
     grant_numbers: Series[Any] | None = pa.Field(alias=ARTICLE_GRANT_NUMBERS, nullable=True)
     grant_id: Series[Any] | None = pa.Field(alias=ARTICLE_GRANT_ID, nullable=True)
     fund_no: Series[Any] | None = pa.Field(alias=ARTICLE_FUND_NUMBER, nullable=True)
+    openalex_author_affiliation_evidence: Series[Any] | None = pa.Field(
+        alias=OPENALEX_AUTHOR_AFFILIATION_EVIDENCE, nullable=True
+    )
+    openalex_author_orcid_evidence: Series[Any] | None = pa.Field(
+        alias=OPENALEX_AUTHOR_ORCID_EVIDENCE, nullable=True
+    )
+    openalex_field_ids: Series[Any] | None = pa.Field(alias=OPENALEX_WORK_FIELD_IDS, nullable=True)
 
     @pa.dataframe_check
     @classmethod

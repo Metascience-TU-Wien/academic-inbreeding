@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from acib.name_disambiguation.constants import (
     CLUSTERS_FILENAME,
@@ -75,21 +76,28 @@ class NameDisambiguationConfig:
     :param matching_output: Resolved name-matching artifact.
     :param article_author_file_path: Article-author evidence dataset.
     :param article_reference_file_path: Citation-edge evidence dataset.
+    :param source: Bibliographic source selected by name matching.
+    :param author_affiliations_file_path: Optional OpenAlex institution dimension.
     :param outputs: Paths for all disambiguation artifacts.
     :param enable_reporting: Whether to print reports to standard output.
     :param same_author_score_threshold: Minimum same-author pair score.
-    :param possible_author_score_threshold: Minimum possible-match pair score.
-    :param max_workers: Maximum batch worker processes.
+     :param possible_author_score_threshold: Minimum possible-match pair score.
+     :param max_workers: Maximum batch worker processes.
+     :param openalex_scan_workers: OpenAlex evidence workers; defaults to
+         ``max_workers`` when omitted.
     """
 
     matching_output: Path
     article_author_file_path: Path
     article_reference_file_path: Path
     outputs: NameDisambiguationOutputs
+    source: Literal["scopus", "openalex"] = "scopus"
+    author_affiliations_file_path: Path | None = None
     enable_reporting: bool = True
     same_author_score_threshold: float = 6.0
     possible_author_score_threshold: float = 3.0
     max_workers: int = 1
+    openalex_scan_workers: int | None = None
 
     def __post_init__(self) -> None:
         """Enforce the original scoring and worker constraints.
@@ -111,17 +119,27 @@ class NameDisambiguationConfig:
             or self.max_workers < 1
         ):
             raise ValueError("max_workers must be a positive integer")
+        if self.openalex_scan_workers is not None and (
+            not isinstance(self.openalex_scan_workers, int)
+            or isinstance(self.openalex_scan_workers, bool)
+            or self.openalex_scan_workers < 1
+        ):
+            raise ValueError("openalex_scan_workers must be a positive integer")
+
+    @property
+    def effective_openalex_scan_workers(self) -> int:
+        """Return the OpenAlex scan worker count with a backward-compatible default."""
+        return self.openalex_scan_workers or self.max_workers
 
     def check_external_inputs_exist(self) -> None:
         """Verify required article-level evidence inputs.
 
         :raises FileNotFoundError: If an article-level input is absent.
         """
-        missing = [
-            path
-            for path in (self.article_author_file_path, self.article_reference_file_path)
-            if not path.is_file()
-        ]
+        paths = [self.article_author_file_path, self.article_reference_file_path]
+        if self.source == "openalex" and self.author_affiliations_file_path is not None:
+            paths.append(self.author_affiliations_file_path)
+        missing = [path for path in paths if not path.is_file()]
         if missing:
             raise FileNotFoundError(
                 "Missing name-disambiguation external inputs: " + ", ".join(map(str, missing))
