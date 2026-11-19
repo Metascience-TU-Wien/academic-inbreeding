@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Fixed
+
+- Removed a test that required the user-configurable `config/pipeline_v2.toml`
+  file to exist in CI.
+
 [v0.10.3] – 2026-11-19
 
 Changed

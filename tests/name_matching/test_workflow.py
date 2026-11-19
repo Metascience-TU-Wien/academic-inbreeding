@@ -172,12 +172,6 @@ def test_fh_department_without_organization_gets_no_asjc_evidence() -> None:
     assert result.loc[0, "inferred_asjc_labels"] == ""
 
 
-def test_pipeline_v2_uses_updated_staff_records_as_researcher_input() -> None:
-    config = load_name_matching_config(PROJECT_ROOT / "config" / "pipeline_v2.toml")
-
-    assert config.researcher_file_path == PROJECT_ROOT / "data/input/staff_records.csv"
-
-
 def test_name_matching_config_resolves_paths_and_preserves_defaults(tmp_path: Path) -> None:
     config_path = tmp_path / "pipeline.toml"
     researcher_path = tmp_path / "researchers.csv"
