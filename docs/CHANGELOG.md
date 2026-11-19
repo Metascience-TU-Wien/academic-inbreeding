@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+[v0.10.3] – 2026-11-19
+
+Changed
+
+- Updated the archived regression-input download to Zenodo record 24377175
+  (version 2), including verification against the published file checksum.
+
 [v0.10.2] – 2026-11-09
 
 Added
