@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import math
+import re
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -45,6 +46,12 @@ from acib.mobility.constants import (
     PUBLICATION_GENERAL_ASJC_SUBJECT_AREAS,
     UNMAPPED_AFFILIATION_ID,
 )
+from acib.mobility.openalex import (
+    attach_openalex_current_affiliations,
+    read_openalex_mobility_affiliations,
+    read_openalex_mobility_articles,
+    selected_openalex_author_ids,
+)
 from acib.mobility.schemas import MobilityAffiliationSchema, MobilityArticleAuthorSchema
 from acib.name_disambiguation.asjc import asjc_entry, level_two_asjc_code
 from acib.name_disambiguation.constants import (
@@ -55,7 +62,7 @@ from acib.name_disambiguation.constants import (
 )
 from acib.name_disambiguation.parsing import parse_subject_areas
 from acib.name_matching.constants import NAME
-from acib.schemas.matching import MatchingOutputSchema
+from acib.schemas.matching import MatchingOutputSchema, OpenAlexMatchingOutputSchema
 from acib.schemas.researchers import ResearcherDisambiguationSelectionSchema
 
 _RESEARCHER_METADATA_STRING_DTYPES = {
@@ -101,19 +108,52 @@ def load_mobility_inputs(config: MobilityConfig) -> MobilityInputs:
     authors = ResearcherDisambiguationSelectionSchema.validate(
         _read_mobility_dataframe(config.authors), lazy=True
     )
-    researcher_metadata = MatchingOutputSchema.validate(
+    matching_schema = (
+        OpenAlexMatchingOutputSchema if config.source == "openalex" else MatchingOutputSchema
+    )
+    researcher_metadata = matching_schema.validate(
         _read_mobility_dataframe(
             config.researcher_metadata,
             dtype=_RESEARCHER_METADATA_STRING_DTYPES,
         ),
         lazy=True,
     )
-    articles = MobilityArticleAuthorSchema.validate(
-        _read_mobility_dataframe(config.article_author), lazy=True
-    )
-    affiliations = _read_mobility_geodataframe(config.affiliations)
+    if config.source == "openalex":
+        if config.candidate_authors is None:
+            raise ValueError("OpenAlex mobility requires the configured candidate-author input")
+        authors = attach_openalex_current_affiliations(authors, config.candidate_authors)
+    if config.source == "openalex":
+        candidate_authors = authors
+        if config.enable_coaffiliated_professor_merge:
+            from acib.mobility.professors import prepare_professor_author_profiles
+
+            candidate_authors = prepare_professor_author_profiles(
+                enrich_authors_with_researcher_metadata(
+                    authors=authors,
+                    researcher_metadata=researcher_metadata,
+                ),
+                professor_title_pattern=config.professor_title_pattern,
+            )
+        candidate_author_ids = selected_openalex_author_ids(candidate_authors)
+        articles = MobilityArticleAuthorSchema.validate(
+            read_openalex_mobility_articles(
+                config.article_author,
+                candidate_author_ids,
+                max_workers=config.openalex_scan_workers,
+            ),
+            lazy=True,
+        )
+        affiliations = read_openalex_mobility_affiliations(config.affiliations)
+    else:
+        articles = MobilityArticleAuthorSchema.validate(
+            _read_mobility_dataframe(config.article_author), lazy=True
+        )
+        affiliations = _read_mobility_geodataframe(config.affiliations)
+    geometry_name = affiliations.geometry.name if hasattr(affiliations, "geometry") else None
     affiliation_attributes = pd.DataFrame(
-        affiliations.drop(columns=[affiliations.geometry.name], errors="ignore")
+        affiliations.drop(columns=[geometry_name], errors="ignore")
+        if geometry_name
+        else affiliations
     )
     MobilityAffiliationSchema.validate(affiliation_attributes, lazy=True)
     return MobilityInputs(
@@ -135,7 +175,7 @@ def _read_mobility_dataframe(
     :param dtype: Optional CSV column dtypes.
     :return: Loaded table.
     """
-    if path.suffix == ".parquet":
+    if path.suffix.casefold() == ".parquet":
         return pd.read_parquet(path)
     return pd.read_csv(path, low_memory=False, dtype=dtype)
 
@@ -164,6 +204,7 @@ _ARTICLE_ROW_ID = "article_id"
 _AUTHOR_SEPARATOR = r"[;,]"
 _MULTIPLE_AFFILIATION_SEPARATOR = "-"
 _RESEARCHER_JOIN_KEY = "_mobility_researcher_join_key"
+_OPENALEX_ENTITY_ID_PATTERN = re.compile(r"^https://openalex\.org/[AIW]\d+$")
 
 
 def process_input_data(
@@ -260,7 +301,7 @@ def add_mobility_author_profile_ids(resolved_authors: pd.DataFrame) -> pd.DataFr
     profile_sets = result.apply(selected_author_profile_tuple, axis=1)
     result[AUTHOR_PROFILE_ID_SET_KEY] = profile_sets.map(author_profile_set_key)
     result[MOBILITY_AUTHOR_PROFILE_ID] = profile_sets.map(mobility_profile_id)
-    profiles_by_id: dict[int, set[tuple[int, ...]]] = {}
+    profiles_by_id: dict[int | str, set[tuple[int | str, ...]]] = {}
     for profile in profile_sets:
         for identifier in profile:
             profiles_by_id.setdefault(identifier, set()).add(profile)
@@ -274,7 +315,7 @@ def add_mobility_author_profile_ids(resolved_authors: pd.DataFrame) -> pd.DataFr
     return result
 
 
-def selected_author_profile_tuple(row: pd.Series) -> tuple[int, ...]:
+def selected_author_profile_tuple(row: pd.Series) -> tuple[int | str, ...]:
     """Return selected profile IDs, using legacy scalar fields when needed.
 
     :param row: One resolved-author record.
@@ -283,7 +324,7 @@ def selected_author_profile_tuple(row: pd.Series) -> tuple[int, ...]:
     if SELECTED_AUTHOR_IDS in row.index:
         identifiers = parse_sequence(row.get(SELECTED_AUTHOR_IDS))
         if identifiers:
-            return tuple(sorted(identifiers))
+            return tuple(sorted(identifiers, key=identifier_sort_key))
     for column in (SELECTED_DISAMBIGUATED_CLUSTER_ID, AUTHOR_ID):
         if column in row.index:
             identifier = parse_single_identifier(row.get(column))
@@ -292,7 +333,7 @@ def selected_author_profile_tuple(row: pd.Series) -> tuple[int, ...]:
     return ()
 
 
-def author_profile_set_key(profile_set: tuple[int, ...]) -> str:
+def author_profile_set_key(profile_set: tuple[int | str, ...]) -> str:
     """Serialize profile IDs in stable comma-separated form.
 
     :param profile_set: Selected IDs for one profile.
@@ -301,7 +342,7 @@ def author_profile_set_key(profile_set: tuple[int, ...]) -> str:
     return ",".join(str(identifier) for identifier in profile_set)
 
 
-def mobility_profile_id(profile_set: tuple[int, ...]) -> int | None:
+def mobility_profile_id(profile_set: tuple[int | str, ...]) -> int | str | None:
     """Return a stable identifier for a selected profile.
 
     :param profile_set: Selected IDs for one profile.
@@ -315,7 +356,7 @@ def mobility_profile_id(profile_set: tuple[int, ...]) -> int | None:
     return -(int(digest[:15], 16) % 9_000_000_000_000_000 + 1)
 
 
-def parse_single_identifier(value: Any) -> int | None:
+def parse_single_identifier(value: Any) -> int | str | None:
     """Parse the first valid integral identifier from a value.
 
     :param value: Scalar or serialized identifier value.
@@ -553,7 +594,12 @@ def _parent_ids(value: str, affiliation_map: dict[Any, Any]) -> np.ndarray:
     :param affiliation_map: Child-to-parent affiliation mapping.
     :return: Array of unique resolved identifiers.
     """
-    ids = np.asarray(value.split(_MULTIPLE_AFFILIATION_SEPARATOR)).astype(np.int64)
+    raw_ids = value.split(_MULTIPLE_AFFILIATION_SEPARATOR)
+    ids = (
+        np.asarray(raw_ids, dtype=object)
+        if any(_is_openalex_entity_id(identifier) for identifier in raw_ids)
+        else np.asarray(raw_ids).astype(np.int64)
+    )
     return np.asarray(list({affiliation_map.get(identifier, identifier) for identifier in ids}))
 
 
@@ -569,14 +615,14 @@ def _get_parent_affiliation_idx(value: str, affiliation_map: dict[Any, Any]) -> 
     return dict(zip(sorted_ids, list(np.argsort(ids))))
 
 
-def _get_parent_affiliation_id(value: str, affiliation_map: dict[Any, Any]) -> list[np.int64]:
+def _get_parent_affiliation_id(value: str, affiliation_map: dict[Any, Any]) -> list[int | str]:
     """Return sorted resolved parent affiliation IDs.
 
     :param value: Delimited affiliation identifiers.
     :param affiliation_map: Child-to-parent affiliation mapping.
     :return: Sorted parent identifiers.
     """
-    return list(np.array(sorted(_parent_ids(value, affiliation_map))).astype(np.int64))
+    return sorted(_parent_ids(value, affiliation_map).tolist(), key=identifier_sort_key)
 
 
 def apply_historical_author_ids(
@@ -585,8 +631,8 @@ def apply_historical_author_ids(
     """Remap historical article IDs to their selected current IDs."""
     history = selected_history_long(resolved_authors)
     if history.empty:
-        return coerce_int_column(article_authors, ARTICLE_AUTHOR_ID)
-    frame = coerce_int_column(article_authors, ARTICLE_AUTHOR_ID).merge(
+        return coerce_identifier_column(article_authors, ARTICLE_AUTHOR_ID)
+    frame = coerce_identifier_column(article_authors, ARTICLE_AUTHOR_ID).merge(
         history, left_on=ARTICLE_AUTHOR_ID, right_on=_HISTORICAL_AUTHOR_ID, how="left"
     )
     frame[ARTICLE_AUTHOR_ID] = np.where(
@@ -602,7 +648,7 @@ def apply_disambiguated_author_ids(
     clusters = selected_author_cluster_long(resolved_authors)
     if clusters.empty:
         return article_authors
-    frame = coerce_int_column(article_authors, ARTICLE_AUTHOR_ID).merge(
+    frame = coerce_identifier_column(article_authors, ARTICLE_AUTHOR_ID).merge(
         clusters, left_on=ARTICLE_AUTHOR_ID, right_on=_SELECTED_AUTHOR_ID, how="left"
     )
     frame[ARTICLE_AUTHOR_ID] = np.where(
@@ -626,9 +672,8 @@ def keep_resolved_authors(
 def explode_affiliations(article_authors: pd.DataFrame) -> pd.DataFrame:
     """Return one row per affiliation and coerce affiliation IDs to int64."""
     frame = article_authors.explode(ARTICLE_AFFILIATION_ID).reset_index(drop=True)
-    frame = coerce_int_column(frame, ARTICLE_AFFILIATION_ID)
+    frame = coerce_identifier_column(frame, ARTICLE_AFFILIATION_ID)
     frame = frame.dropna(subset=[ARTICLE_AFFILIATION_ID]).copy()
-    frame[ARTICLE_AFFILIATION_ID] = frame[ARTICLE_AFFILIATION_ID].astype("int64")
     return frame
 
 
@@ -642,12 +687,10 @@ def selected_history_long(resolved_authors: pd.DataFrame) -> pd.DataFrame:
     frames = [frame for frame in frames if not frame.empty]
     if not frames:
         return empty_history_frame()
-    return (
-        pd.concat(frames, ignore_index=True)
-        .drop_duplicates()
-        .astype("int64")
-        .reset_index(drop=True)
-    )
+    history = pd.concat(frames, ignore_index=True).drop_duplicates().reset_index(drop=True)
+    for column in (_CURRENT_AUTHOR_ID, _HISTORICAL_AUTHOR_ID):
+        history[column] = normalize_identifier_series(history[column])
+    return history
 
 
 def selected_history_mapping_long(resolved_authors: pd.DataFrame) -> pd.DataFrame:
@@ -665,7 +708,10 @@ def selected_history_mapping_long(resolved_authors: pd.DataFrame) -> pd.DataFram
         for current, previous_ids in mapping.items()
         for previous in previous_ids
     ]
-    return pd.DataFrame(rows, columns=[_CURRENT_AUTHOR_ID, _HISTORICAL_AUTHOR_ID]).astype("int64")
+    result = pd.DataFrame(rows, columns=[_CURRENT_AUTHOR_ID, _HISTORICAL_AUTHOR_ID])
+    for column in result:
+        result[column] = normalize_identifier_series(result[column])
+    return result
 
 
 def historical_identifier_long(resolved_authors: pd.DataFrame) -> pd.DataFrame:
@@ -678,9 +724,12 @@ def historical_identifier_long(resolved_authors: pd.DataFrame) -> pd.DataFrame:
     history = history.explode(_HISTORICAL_AUTHOR_ID).dropna(subset=[_HISTORICAL_AUTHOR_ID])
     if history.empty:
         return empty_history_frame()
-    return history.rename(columns={column: _CURRENT_AUTHOR_ID})[
+    result = history.rename(columns={column: _CURRENT_AUTHOR_ID})[
         [_CURRENT_AUTHOR_ID, _HISTORICAL_AUTHOR_ID]
-    ].astype("int64")
+    ]
+    for identifier_column in result:
+        result[identifier_column] = normalize_identifier_series(result[identifier_column])
+    return result
 
 
 def selected_author_cluster_long(resolved_authors: pd.DataFrame) -> pd.DataFrame:
@@ -698,9 +747,12 @@ def selected_author_cluster_long(resolved_authors: pd.DataFrame) -> pd.DataFrame
     clusters = clusters.explode(_SELECTED_AUTHOR_ID).dropna(subset=[_SELECTED_AUTHOR_ID])
     if clusters.empty:
         return empty_cluster_frame()
-    return clusters.rename(columns={target: _DISAMBIGUATED_AUTHOR_ID})[
+    result = clusters.rename(columns={target: _DISAMBIGUATED_AUTHOR_ID})[
         [_DISAMBIGUATED_AUTHOR_ID, _SELECTED_AUTHOR_ID]
-    ].astype("int64")
+    ]
+    for column in result:
+        result[column] = normalize_identifier_series(result[column])
+    return result
 
 
 def resolved_author_ids(resolved_authors: pd.DataFrame) -> pd.Series:
@@ -708,6 +760,8 @@ def resolved_author_ids(resolved_authors: pd.DataFrame) -> pd.Series:
     column = resolved_author_id_column(resolved_authors)
     if column is None:
         return pd.Series(dtype="int64")
+    if resolved_authors[column].map(_is_openalex_entity_id).any():
+        return normalize_identifier_series(resolved_authors[column]).dropna().drop_duplicates()
     return (
         pd.to_numeric(resolved_authors[column], errors="coerce")
         .dropna()
@@ -724,7 +778,7 @@ def resolved_author_id_column(resolved_authors: pd.DataFrame) -> str | None:
     return None
 
 
-def parse_mapping(value: Any) -> dict[str, list[int]]:
+def parse_mapping(value: Any) -> dict[str, list[int | str]]:
     """Parse a mapping of current profile IDs to historical IDs."""
     parsed = parse_literal(value)
     if not isinstance(parsed, dict):
@@ -736,14 +790,26 @@ def parse_mapping(value: Any) -> dict[str, list[int]]:
     }
 
 
-def parse_sequence(value: Any) -> list[int]:
-    """Parse unique integral IDs from a scalar or sequence."""
+def parse_sequence(value: Any) -> list[int | str]:
+    """Parse unique integral IDs or stable OpenAlex entity URLs."""
     parsed = parse_literal(value)
     if parsed is None:
         return []
     values = parsed if isinstance(parsed, (list, tuple, set)) else [parsed]
-    series = pd.to_numeric(pd.Series(list(values), dtype="object"), errors="coerce").dropna()
-    return series.astype("int64").drop_duplicates().tolist()
+    identifiers: list[int | str] = []
+    seen: set[int | str] = set()
+    for item in values:
+        if _is_openalex_entity_id(item):
+            identifier: int | str = str(item)
+        else:
+            numeric = pd.to_numeric(pd.Series([item], dtype="object"), errors="coerce").iloc[0]
+            if pd.isna(numeric) or not float(numeric).is_integer():
+                continue
+            identifier = int(numeric)
+        if identifier not in seen:
+            identifiers.append(identifier)
+            seen.add(identifier)
+    return identifiers
 
 
 def parse_literal(value: Any) -> Any:
@@ -766,6 +832,53 @@ def coerce_int_column(frame: pd.DataFrame, column: str) -> pd.DataFrame:
     result = frame.copy()
     result[column] = pd.to_numeric(result[column], errors="coerce")
     return result
+
+
+def coerce_identifier_column(frame: pd.DataFrame, column: str) -> pd.DataFrame:
+    """Normalize Scopus numeric IDs while preserving OpenAlex ID URLs.
+
+    :param frame: Input table.
+    :param column: Identifier column to normalize.
+    :return: A copy containing normalized identifiers.
+    """
+    result = frame.copy()
+    if result[column].map(_is_openalex_entity_id).any():
+        result[column] = normalize_identifier_series(result[column])
+        return result
+    return coerce_int_column(result, column)
+
+
+def normalize_identifier_series(values: pd.Series) -> pd.Series:
+    """Retain OpenAlex URLs and normalize integral profile identifiers.
+
+    :param values: Identifier values.
+    :return: Object-typed normalized identifiers.
+    """
+    normalized: list[int | str | None] = []
+    for value in values:
+        if _is_openalex_entity_id(value):
+            normalized.append(str(value))
+            continue
+        if value is None or pd.isna(value):
+            normalized.append(None)
+            continue
+        try:
+            numeric = float(str(value).strip())
+        except (TypeError, ValueError):
+            normalized.append(None)
+            continue
+        normalized.append(int(numeric) if math.isfinite(numeric) and numeric.is_integer() else None)
+    return pd.Series(normalized, index=values.index, dtype="object")
+
+
+def identifier_sort_key(value: int | str) -> tuple[int, int | str]:
+    """Sort numeric Scopus IDs numerically and OpenAlex URLs lexically."""
+    return (0, int(value)) if isinstance(value, (int, np.integer)) else (1, str(value))
+
+
+def _is_openalex_entity_id(value: Any) -> bool:
+    """Return whether a value is a canonical OpenAlex entity ID URL."""
+    return isinstance(value, str) and _OPENALEX_ENTITY_ID_PATTERN.fullmatch(value) is not None
 
 
 def ensure_column(frame: pd.DataFrame, column: str, default: Any) -> None:

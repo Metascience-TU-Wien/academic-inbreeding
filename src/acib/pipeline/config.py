@@ -426,6 +426,9 @@ def load_mobility_config(path: str | Path) -> MobilityConfig:
         first_affiliation_year_count=_positive_integer(section, "first_affiliation_year_count", 2),
         min_publication_history_years=min_history,
         max_workers=_positive_integer(section, "max_workers", 3),
+        openalex_scan_workers=_positive_integer(section, "openalex_scan_workers", 1),
+        source=matching.source,
+        candidate_authors=matching.candidate_authors_file,
     )
 
 

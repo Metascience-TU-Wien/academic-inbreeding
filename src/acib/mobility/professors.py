@@ -256,14 +256,14 @@ def raw_title_for_class(*, group: pd.DataFrame, title_class: str) -> str:
     return titles[0] if titles else ""
 
 
-def merged_sequence(values: pd.Series) -> list[int]:
+def merged_sequence(values: pd.Series) -> list[int | str]:
     """Merge parsed integer sequences with first-seen ordering and deduplication.
 
     :param values: Serialized or parsed sequences.
     :return: Unique identifiers in row and sequence order.
     """
-    result: list[int] = []
-    seen: set[int] = set()
+    result: list[int | str] = []
+    seen: set[int | str] = set()
     for value in values:
         for item in parse_sequence(value):
             if item not in seen:
@@ -272,14 +272,14 @@ def merged_sequence(values: pd.Series) -> list[int]:
     return result
 
 
-def merged_history(values: pd.Series) -> dict[str, list[int]]:
+def merged_history(values: pd.Series) -> dict[str, list[int | str]]:
     """Merge history mappings, preserving first-seen key and identifier order.
 
     :param values: Serialized or parsed history mappings.
     :return: Combined mapping of current IDs to unique historical IDs.
     """
-    result: dict[str, list[int]] = {}
-    seen: dict[str, set[int]] = {}
+    result: dict[str, list[int | str]] = {}
+    seen: dict[str, set[int | str]] = {}
     for value in values:
         for author_id, historical_ids in parse_mapping(value).items():
             result.setdefault(author_id, [])

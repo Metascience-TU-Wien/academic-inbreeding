@@ -168,6 +168,63 @@ def test_analyze_authors_marks_overlapping_nonidentical_profiles_for_manual_revi
     ]
 
 
+def test_analyze_authors_sorts_mixed_openalex_and_synthetic_profile_ids() -> None:
+    resolved_authors = pd.DataFrame(
+        [
+            {
+                "selected_author_ids": [
+                    "https://openalex.org/A1",
+                    "https://openalex.org/A2",
+                ],
+                "sc_id": 1,
+                "researcher_name": "Example, Multi",
+            },
+            {
+                "selected_author_ids": ["https://openalex.org/A3"],
+                "sc_id": 2,
+                "researcher_name": "Example, Single",
+            },
+        ]
+    )
+    prepared_authors = add_mobility_author_profile_ids(resolved_authors)
+    article_author_df = pd.DataFrame(
+        [
+            {
+                "eid": "multi",
+                "author_ids": prepared_authors.loc[0, MOBILITY_AUTHOR_PROFILE_ID_COLUMN],
+                "author_afids": "https://openalex.org/I1",
+                "cover_date": "2010-01-01",
+            },
+            {
+                "eid": "single",
+                "author_ids": prepared_authors.loc[1, MOBILITY_AUTHOR_PROFILE_ID_COLUMN],
+                "author_afids": "https://openalex.org/I2",
+                "cover_date": "2020-01-01",
+            },
+        ]
+    )
+    affiliations = pd.DataFrame(
+        {
+            "affiliation_id": [
+                "https://openalex.org/I1",
+                "https://openalex.org/I2",
+            ],
+            "affiliation_id_parent": [pd.NA, pd.NA],
+        }
+    )
+
+    _, author_summary = analyze_authors(
+        article_author_df=article_author_df,
+        resolved_authors=resolved_authors,
+        affiliations=affiliations,
+    )
+
+    assert set(author_summary["author_ids"]) == {
+        prepared_authors.loc[0, MOBILITY_AUTHOR_PROFILE_ID_COLUMN],
+        "https://openalex.org/A3",
+    }
+
+
 def test_clean_affiliations_uses_splink_chatgpt_after_parent() -> None:
     affiliations = pd.DataFrame(
         [

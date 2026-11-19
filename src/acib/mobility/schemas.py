@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from typing import Any
 
 import numpy as np
@@ -35,6 +37,8 @@ from acib.mobility.constants import (
 )
 from acib.name_disambiguation.constants import AUTHOR_IDS
 
+_OPENALEX_INSTITUTION_ID_PATTERN = re.compile(r"^https://openalex\.org/I\d+$")
+
 
 class MobilityArticleAuthorSchema(pa.DataFrameModel):
     """Validate article-author-affiliation rows used by mobility processing.
@@ -64,7 +68,7 @@ class MobilityAffiliationSchema(pa.DataFrameModel):
     rows: it has no author ID and supplies institution-level address metadata.
     """
 
-    affiliation_id: Series[int] = pa.Field(alias=AFFILIATION_ID, nullable=False)
+    affiliation_id: Series[Any] = pa.Field(alias=AFFILIATION_ID, nullable=False)
     affiliation_id_parent: Series[Any] | None = pa.Field(alias=AFFILIATION_ID_PARENT, nullable=True)
     affiliation_id_parent_chatgpt: Series[Any] | None = pa.Field(
         alias=AFFILIATION_ID_PARENT_CHATGPT, nullable=True
@@ -81,6 +85,16 @@ class MobilityAffiliationSchema(pa.DataFrameModel):
     city: Series[Any] | None = pa.Field(alias=CITY, nullable=True)
     country: Series[Any] | None = pa.Field(alias=COUNTRY, nullable=True)
 
+    @pa.check(AFFILIATION_ID)
+    @classmethod
+    def affiliation_ids_are_supported(cls, values: pd.Series) -> pd.Series:
+        """Accept numeric Scopus IDs or stable OpenAlex institution URLs.
+
+        :param values: Institution identifiers from the configured source.
+        :return: Row-wise validity mask.
+        """
+        return values.map(_is_supported_affiliation_id)
+
     class Config:
         """Preserve additional institution and geometry metadata."""
 
@@ -88,13 +102,33 @@ class MobilityAffiliationSchema(pa.DataFrameModel):
         coerce = False
 
 
+def _is_supported_affiliation_id(value: Any) -> bool:
+    """Accept integral Scopus IDs and canonical OpenAlex institution URLs."""
+    if type(value) in (bool, np.bool_):
+        return False
+    text = str(value)
+    if _OPENALEX_INSTITUTION_ID_PATTERN.fullmatch(text):
+        return True
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric.is_integer()
+
+
 class MobilityAuthorAffiliationsOutputSchema(pa.DataFrameModel):
     """Validate per-author mobility affiliation-history output rows."""
 
-    author_ids: Series[int] = pa.Field(alias=AUTHOR_IDS, nullable=False)
-    affiliation_id: Series[int] = pa.Field(alias=AFFILIATION_ID, nullable=False)
+    author_ids: Series[Any] = pa.Field(alias=AUTHOR_IDS, nullable=False)
+    affiliation_id: Series[Any] = pa.Field(alias=AFFILIATION_ID, nullable=False)
     affiliation_type: Series[Any] | None = pa.Field(alias=AUTHOR_AFFILIATION_TYPE, nullable=True)
     affiliation_id_parent: Series[Any] | None = pa.Field(alias=AFFILIATION_ID_PARENT, nullable=True)
+
+    @pa.check(AFFILIATION_ID)
+    @classmethod
+    def affiliation_ids_are_supported(cls, values: pd.Series) -> pd.Series:
+        """Validate numeric Scopus IDs and stable OpenAlex institution URLs."""
+        return values.map(_is_supported_affiliation_id)
 
     class Config:
         """Retain all additional history fields without coercion."""
@@ -106,7 +140,7 @@ class MobilityAuthorAffiliationsOutputSchema(pa.DataFrameModel):
 class MobilityAuthorInbreedingOutputSchema(pa.DataFrameModel):
     """Validate author-level inbreeding and mobility summary rows."""
 
-    author_ids: Series[int] = pa.Field(alias=AUTHOR_IDS, nullable=False)
+    author_ids: Series[Any] = pa.Field(alias=AUTHOR_IDS, nullable=False)
     is_inbreeding_proxy: Series[Any] | None = pa.Field(alias=IS_INBREEDING_PROXY, nullable=True)
 
     @pa.check(IS_INBREEDING_PROXY)
@@ -130,7 +164,7 @@ class MobilityAuthorArticlesOutputSchema(pa.DataFrameModel):
     """Validate author-article rows with grouped affiliation identifiers."""
 
     eid: Series[Any] = pa.Field(alias=EID, nullable=False)
-    author_ids: Series[int] = pa.Field(alias=AUTHOR_IDS, nullable=False)
+    author_ids: Series[Any] = pa.Field(alias=AUTHOR_IDS, nullable=False)
     author_afids: Series[str] = pa.Field(alias=ARTICLE_AFFILIATION_ID, nullable=False)
     unmapped_id: Series[str] = pa.Field(alias=UNMAPPED_AFFILIATION_ID, nullable=False)
 

@@ -716,6 +716,70 @@
   rows are not silently deduplicated; evidence author IDs are selected using
   group row counts, as in the scoring service.
 
+## Mobility OpenAlex input adaptation — Phase 2
+
+- Added a focused `acib.mobility.openalex` source adapter rather than a factory
+  or strategy framework. File reading remains in the stage input boundary;
+  source selection comes from the configured name-matching source, and CSV
+  versus Parquet reading is selected by file extension.
+- For OpenAlex, the adapter reads the observed
+  `austrian_author_affiliation_pairs.parquet` contract to attach selected
+  authors' current institution IDs from rows where `current_affiliation` is
+  true. Stable author and institution URLs remain strings. The institution
+  dimension has no parent hierarchy, so institution IDs are used directly.
+- OpenAlex Works are filtered by selected stable author IDs with DuckDB and
+  fetched in bounded batches. The adapter converts authorship-specific
+  institution lists to the existing mobility row format. It does not load the
+  full 8.5-GB Works table into pandas or add a format-specific matching
+  algorithm.
+- Mobility identifier handling and schemas now retain OpenAlex URLs while
+  preserving numeric Scopus IDs and existing Scopus parent resolution. If the
+  university-affiliation rule is enabled for an OpenAlex profile with no
+  current institution in the observed candidate-pair input, the classification
+  is marked for manual review rather than treating historical Work
+  institutions as current.
+- Data inspection found 446,611 candidate-pair rows: 189,037 marked current
+  and 257,574 not current. Of 37,521 selected OpenAlex author IDs inspected,
+  28,932 had at least one current institution and 8,589 had none. This leaves
+  the current-affiliation-dependent classification incomplete for those
+  profiles when that optional rule is enabled.
+- Phase 2 static checks: scoped Ruff and all configured pre-commit hooks,
+  including Black, Flake8, mypy, and isort, passed; `git diff --check` passed.
+  No tests or full Mobility run were performed in Phase 2.
+
+### Phase 4 — Mobility OpenAlex verification
+
+- Added focused tests for selected-author current-institution aggregation
+  (including clustered IDs, duplicate pairs, false current flags, and string-ID
+  preservation), the current-institution membership check used by the
+  university-affiliation classification, manual review when current IDs are
+  absent, candidate-filtered Works/authorship adaptation, and direct OpenAlex
+  institution-dimension IDs. When professor merging/filtering is enabled,
+  Works candidate IDs are now restricted to the professor-filtered author
+  profiles using the same title-filtering function as the analysis step.
+- Mobility now reads OpenAlex Works in 50,000-row PyArrow batches, filters each
+  batch with DuckDB, and reports scanned-row progress and RSS every 100,000
+  source Works. This follows the disambiguation scanner's bounded-read pattern
+  while retaining Mobility's distinct author/institution adaptation. The new
+  `[mobility].openalex_scan_workers` setting bounds concurrent batch filters;
+  it defaults to one and is set to four in `name_matching_openalex.toml`.
+- A full Mobility run exposed mixed-type ordering when multi-author selected
+  profiles use deterministic numeric internal IDs while single-author OpenAlex
+  profiles retain URL IDs. Author processing now sorts these identifiers with
+  the source-aware stable ordering helper; Scopus numeric ordering is unchanged.
+- `uv run pytest tests/mobility/ tests/integration/test_mobility_workflow.py
+  tests/integration/test_mobility_dependencies.py -q`: **73 passed**. This
+  includes the existing Scopus Mobility unit and workflow coverage. Warnings:
+  four multiprocessing `fork` deprecations and eight pandas downcasting
+  `FutureWarning`s in existing Scopus mobility paths.
+- Ruff, all configured pre-commit hooks (including Flake8, Black, mypy, and
+  isort), and `git diff --check` passed on the changed implementation,
+  documentation, and test files.
+- No full OpenAlex Works dataset run or complete source-versus-target
+  Scopus-output comparison was performed. The Works reader was verified with a
+  deterministic nested-Parquet fixture; resource use on the full dataset and
+  full-data behavioral equivalence remain unverified.
+
 ## Scope
 
 The source project is `name-matching-playground`, managed with Poetry. The target is this repository, `academic-inbreeding`. Migration is incremental: dependency/build setup comes first; application code and tests are not part of Phase 1.

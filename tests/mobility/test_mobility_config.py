@@ -83,6 +83,29 @@ def test_mobility_resolves_inputs_from_canonical_owners(tmp_path: Path) -> None:
     assert config.max_workers == 5
 
 
+def test_mobility_uses_configured_openalex_source_and_candidate_input(tmp_path: Path) -> None:
+    config_path = tmp_path / "pipeline.toml"
+    write_pipeline_config(config_path, mobility_options="openalex_scan_workers = 4")
+    text = config_path.read_text(encoding="utf-8").replace(
+        "[data]\n", '[data]\nsource = "openalex"\n'
+    )
+    config_path.write_text(text, encoding="utf-8")
+
+    config = load_mobility_config(config_path)
+
+    assert config.source == "openalex"
+    assert config.candidate_authors == PROJECT_ROOT / "external/authors.csv"
+    assert config.openalex_scan_workers == 4
+
+
+def test_mobility_rejects_nonpositive_openalex_scan_workers(tmp_path: Path) -> None:
+    config_path = tmp_path / "pipeline.toml"
+    write_pipeline_config(config_path, mobility_options="openalex_scan_workers = 0")
+
+    with pytest.raises(ValueError, match="openalex_scan_workers must be a positive integer"):
+        load_mobility_config(config_path)
+
+
 def test_mobility_relative_paths_ignore_current_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

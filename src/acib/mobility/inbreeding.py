@@ -5,11 +5,12 @@
 from __future__ import annotations
 
 import math
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import structlog
@@ -119,7 +120,10 @@ from acib.mobility.constants import (
 )
 from acib.mobility.input import (
     add_mobility_author_profile_ids,
+    identifier_sort_key,
+    normalize_identifier_series,
     parse_literal,
+    parse_sequence,
     process_input_data,
 )
 from acib.name_disambiguation.constants import (
@@ -128,6 +132,7 @@ from acib.name_disambiguation.constants import (
     ARTICLE_FUND_NUMBER as ARTICLE_FUND_NO_COLUMN,
     ARTICLE_PUBLICATION_NAME,
     AUTHOR_IDS as ARTICLE_AUTHOR_ID_COLUMN,
+    CURRENT_AFFILIATION_IDS as CURRENT_AFFILIATION_IDS_COLUMN,
     SELECTED_AUTHOR_IDS as DISAMBIGUATED_AUTHOR_IDS_COLUMN,
     SELECTED_DISAMBIGUATED_CLUSTER_ID as DISAMBIGUATED_AUTHOR_ID_COLUMN,
     SELECTED_HISTORY as DISAMBIGUATED_AUTHOR_HISTORY_COLUMN,
@@ -157,6 +162,7 @@ _N_AFFILIATIONS_ON_PAPER_COLUMN = "n_affiliations_on_paper"
 _IS_COAFFILIATED_COLUMN = "is_coaffiliated"
 _HAS_HOME_COLUMN = "has_home"
 _IS_AWAY_COLUMN = "is_away"
+_OPENALEX_ENTITY_ID_PATTERN = re.compile(r"https://openalex\.org/[AIW]\d+")
 
 _AFFILIATION_METADATA_COLUMNS = [
     AFFILIATION_ID_COLUMN,
@@ -195,11 +201,11 @@ class InbreedingDetection:
     method: str
     status: str
     manual_review_required: bool
-    university_affiliation_ids: list[int]
-    last_university_affiliation_overlap_ids: list[int]
-    estimated_first_affiliation_ids: list[int]
-    estimated_first_affiliation_counts: dict[int, int]
-    first_university_affiliation_overlap_ids: list[int]
+    university_affiliation_ids: list[int | str]
+    last_university_affiliation_overlap_ids: list[int | str]
+    estimated_first_affiliation_ids: list[int | str]
+    estimated_first_affiliation_counts: dict[int | str, int]
+    first_university_affiliation_overlap_ids: list[int | str]
     first_affiliation_publication_count_required: int
     first_affiliation_publication_count_observed: int
     early_affiliation_method: str
@@ -300,7 +306,10 @@ def analyze_authors(
     resolved_authors = prepare_resolved_authors(resolved_authors=resolved_authors)
     article_author_df = prepare_article_author_frame(article_author_df=article_author_df)
     max_workers = max(1, int(max_workers))
-    author_ids = sorted(article_author_df[ARTICLE_AUTHOR_ID_COLUMN].dropna().unique().tolist())
+    author_ids = sorted(
+        article_author_df[ARTICLE_AUTHOR_ID_COLUMN].dropna().unique().tolist(),
+        key=identifier_sort_key,
+    )
     _logger.info(
         "Analyzing academic inbreeding authors",
         author_count=len(author_ids),
@@ -429,7 +438,7 @@ def analyze_author_chunk_worker(
     )
 
 
-def split_author_ids(author_ids: list[int], max_workers: int) -> list[list[int]]:
+def split_author_ids(author_ids: list[int | str], max_workers: int) -> list[list[int | str]]:
     """Partition author identifiers into balanced worker chunks.
 
     :param author_ids: Author identifiers to partition.
@@ -448,7 +457,7 @@ def split_author_ids(author_ids: list[int], max_workers: int) -> list[list[int]]
 def article_chunk_for_author_ids(
     *,
     article_author_df: pd.DataFrame,
-    author_ids: list[int],
+    author_ids: list[int | str],
 ) -> pd.DataFrame:
     """Select article-author rows for the requested identifiers.
 
@@ -465,7 +474,7 @@ def process_author_chunks_bounded(
     *,
     executor: ProcessPoolExecutor,
     article_author_df: pd.DataFrame,
-    author_id_chunks: list[list[int]],
+    author_id_chunks: list[list[int | str]],
     max_workers: int,
 ) -> list[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
     """Submit bounded author chunks and return results in input order.
@@ -624,13 +633,10 @@ def prepare_resolved_authors(resolved_authors: pd.DataFrame) -> pd.DataFrame:
     resolved_authors = resolved_authors.loc[
         resolved_authors[ARTICLE_AUTHOR_ID_COLUMN].notna()
     ].copy()
-    resolved_authors[ARTICLE_AUTHOR_ID_COLUMN] = pd.to_numeric(
-        resolved_authors[ARTICLE_AUTHOR_ID_COLUMN], errors="coerce"
+    resolved_authors[ARTICLE_AUTHOR_ID_COLUMN] = normalize_identifier_series(
+        resolved_authors[ARTICLE_AUTHOR_ID_COLUMN]
     )
     resolved_authors = resolved_authors.dropna(subset=[ARTICLE_AUTHOR_ID_COLUMN]).copy()
-    resolved_authors[ARTICLE_AUTHOR_ID_COLUMN] = resolved_authors[ARTICLE_AUTHOR_ID_COLUMN].astype(
-        "int64"
-    )
     dedupe_columns = [
         column
         for column in (ARTICLE_AUTHOR_ID_COLUMN, RESEARCHER_ID_COLUMN_NAME)
@@ -646,11 +652,11 @@ def prepare_article_author_frame(article_author_df: pd.DataFrame) -> pd.DataFram
     :return: Clean rows with numeric identifiers and parsed dates.
     """
     article_author_df = article_author_df.copy()
-    article_author_df[ARTICLE_AUTHOR_ID_COLUMN] = pd.to_numeric(
-        article_author_df[ARTICLE_AUTHOR_ID_COLUMN], errors="coerce"
+    article_author_df[ARTICLE_AUTHOR_ID_COLUMN] = normalize_identifier_series(
+        article_author_df[ARTICLE_AUTHOR_ID_COLUMN]
     )
-    article_author_df[ARTICLE_AFFILIATION_ID_COLUMN] = pd.to_numeric(
-        article_author_df[ARTICLE_AFFILIATION_ID_COLUMN], errors="coerce"
+    article_author_df[ARTICLE_AFFILIATION_ID_COLUMN] = normalize_identifier_series(
+        article_author_df[ARTICLE_AFFILIATION_ID_COLUMN]
     )
     article_author_df[ARTICLE_COVER_DATE_COLUMN] = pd.to_datetime(
         article_author_df[ARTICLE_COVER_DATE_COLUMN], errors="coerce"
@@ -658,12 +664,6 @@ def prepare_article_author_frame(article_author_df: pd.DataFrame) -> pd.DataFram
     article_author_df = article_author_df.dropna(
         subset=[ARTICLE_AUTHOR_ID_COLUMN, ARTICLE_AFFILIATION_ID_COLUMN, ARTICLE_COVER_DATE_COLUMN]
     ).copy()
-    article_author_df[ARTICLE_AUTHOR_ID_COLUMN] = article_author_df[
-        ARTICLE_AUTHOR_ID_COLUMN
-    ].astype("int64")
-    article_author_df[ARTICLE_AFFILIATION_ID_COLUMN] = article_author_df[
-        ARTICLE_AFFILIATION_ID_COLUMN
-    ].astype("int64")
     return article_author_df
 
 
@@ -683,8 +683,8 @@ def prepare_author_publications(
         left_on=ARTICLE_AFFILIATION_ID_COLUMN,
         right_on=AFFILIATION_ID_COLUMN,
     )
-    parent_ids = pd.to_numeric(merged[AFFILIATION_ID_PARENT_COLUMN], errors="coerce")
-    affiliation_ids = pd.to_numeric(merged[ARTICLE_AFFILIATION_ID_COLUMN], errors="coerce")
+    parent_ids = merged[AFFILIATION_ID_PARENT_COLUMN]
+    affiliation_ids = merged[ARTICLE_AFFILIATION_ID_COLUMN]
     merged[MOBILITY_INSTITUTION_KEY_COLUMN] = parent_ids.where(parent_ids.notna(), affiliation_ids)
     return merged.sort_values(
         [ARTICLE_COVER_DATE_COLUMN, ARTICLE_AFFILIATION_ID_COLUMN],
@@ -727,17 +727,65 @@ def affiliation_set_at_date(
     date: pd.Timestamp,
     *,
     column: str = ARTICLE_AFFILIATION_ID_COLUMN,
-) -> set[int]:
+) -> set[int | str]:
     """Return normalized affiliation IDs recorded on a given date.
 
     :param group: Prepared publication rows.
     :param date: Date whose affiliations are requested.
     :param column: Affiliation identifier field.
-    :return: Integral affiliation identifiers.
+    :return: Affiliation identifiers.
     """
     if column not in group.columns or pd.isna(date):
         return set()
-    return normalized_int_set(group.loc[group[ARTICLE_COVER_DATE_COLUMN] == date, column])
+    return normalized_identifier_set(group.loc[group[ARTICLE_COVER_DATE_COLUMN] == date, column])
+
+
+def normalized_identifier_set(values: Any) -> set[int | str]:
+    """Normalize numeric IDs and preserve stable OpenAlex entity URLs.
+
+    :param values: Scalar, collection, or Series of identifiers.
+    :return: Unique normalized identifiers.
+    """
+    iterable = (
+        values.tolist()
+        if isinstance(values, pd.Series)
+        else list(values) if isinstance(values, (list, tuple, set)) else [values]
+    )
+    result: set[int | str] = set()
+    for value in iterable:
+        if isinstance(value, str) and _OPENALEX_ENTITY_ID_PATTERN.fullmatch(value) is not None:
+            result.add(value)
+            continue
+        result.update(normalized_int_set(value))
+    return result
+
+
+def profile_uses_openalex_ids(author_match: pd.DataFrame) -> bool:
+    """Identify an OpenAlex profile from its selected stable author IDs."""
+    if DISAMBIGUATED_AUTHOR_IDS_COLUMN not in author_match:
+        return False
+    return any(
+        isinstance(identifier, str) and identifier.startswith("https://openalex.org/A")
+        for value in author_match[DISAMBIGUATED_AUTHOR_IDS_COLUMN]
+        for identifier in parse_sequence(value)
+    )
+
+
+def openalex_current_affiliation_ids(author_match: pd.DataFrame) -> list[str]:
+    """Return current OpenAlex institution IDs attached to selected profiles.
+
+    :param author_match: Selected author rows enriched from the candidate-pair input.
+    :return: Unique current institution URLs in stable order.
+    """
+    if CURRENT_AFFILIATION_IDS_COLUMN not in author_match:
+        return []
+    institution_ids = {
+        identifier
+        for value in author_match[CURRENT_AFFILIATION_IDS_COLUMN]
+        for identifier in parse_sequence(value)
+        if isinstance(identifier, str) and re.fullmatch(r"https://openalex\.org/I\d+", identifier)
+    }
+    return sorted(institution_ids)
 
 
 def normalized_int_set(values: Any) -> set[int]:
@@ -851,7 +899,7 @@ def first_publication_affiliation_estimate(
     group: pd.DataFrame,
     *,
     publication_count: int,
-) -> tuple[list[int], dict[int, int], int, str]:
+) -> tuple[list[int | str], dict[int | str, int], int, str]:
     """Estimate early affiliations from the first distinct publications.
 
     :param group: Publication-affiliation rows for one author.
@@ -898,16 +946,13 @@ def first_publication_affiliation_estimate(
         on=_PUBLICATION_EVENT_KEY_COLUMN,
         how="inner",
     ).copy()
-    affiliations[ARTICLE_AFFILIATION_ID_COLUMN] = pd.to_numeric(
-        affiliations[ARTICLE_AFFILIATION_ID_COLUMN], errors="coerce"
+    affiliations[ARTICLE_AFFILIATION_ID_COLUMN] = normalize_identifier_series(
+        affiliations[ARTICLE_AFFILIATION_ID_COLUMN]
     )
     affiliations = affiliations.dropna(subset=[ARTICLE_AFFILIATION_ID_COLUMN])
     if affiliations.empty:
         return [], {}, observed_publications, "manual_review_no_first_affiliations"
 
-    affiliations[ARTICLE_AFFILIATION_ID_COLUMN] = affiliations[
-        ARTICLE_AFFILIATION_ID_COLUMN
-    ].astype("int64")
     publication_affiliations = affiliations.drop_duplicates(
         subset=[_PUBLICATION_EVENT_KEY_COLUMN, ARTICLE_AFFILIATION_ID_COLUMN]
     )
@@ -918,7 +963,7 @@ def first_publication_affiliation_estimate(
         .astype(int)
         .to_dict()
     )
-    counts = {int(affiliation_id): int(count) for affiliation_id, count in raw_counts.items()}
+    counts = {affiliation_id: int(count) for affiliation_id, count in raw_counts.items()}
     max_count = max(counts.values())
     tied_ids = {affiliation_id for affiliation_id, count in counts.items() if count == max_count}
     first_seen = (
@@ -930,9 +975,8 @@ def first_publication_affiliation_estimate(
     )
     earliest_order = first_seen.min()
     selected_ids = sorted(
-        int(affiliation_id)
-        for affiliation_id, order in first_seen.items()
-        if order == earliest_order
+        (affiliation_id for affiliation_id, order in first_seen.items() if order == earliest_order),
+        key=identifier_sort_key,
     )
 
     status = "assigned"
@@ -1020,7 +1064,7 @@ def first_year_affiliation_presence_estimate(
     group: pd.DataFrame,
     *,
     year_count: int,
-) -> tuple[list[int], dict[int, int], int, str, int | None, int | None]:
+) -> tuple[list[int | str], dict[int | str, int], int, str, int | None, int | None]:
     """Estimate early affiliations from the first calendar-year window.
 
     :param group: Publication-affiliation rows for one author.
@@ -1071,8 +1115,8 @@ def first_year_affiliation_presence_estimate(
         on=_PUBLICATION_EVENT_KEY_COLUMN,
         how="inner",
     ).copy()
-    affiliations[ARTICLE_AFFILIATION_ID_COLUMN] = pd.to_numeric(
-        affiliations[ARTICLE_AFFILIATION_ID_COLUMN], errors="coerce"
+    affiliations[ARTICLE_AFFILIATION_ID_COLUMN] = normalize_identifier_series(
+        affiliations[ARTICLE_AFFILIATION_ID_COLUMN]
     )
     affiliations = affiliations.dropna(subset=[ARTICLE_AFFILIATION_ID_COLUMN])
     if affiliations.empty:
@@ -1085,9 +1129,6 @@ def first_year_affiliation_presence_estimate(
             early_window_end_year,
         )
 
-    affiliations[ARTICLE_AFFILIATION_ID_COLUMN] = affiliations[
-        ARTICLE_AFFILIATION_ID_COLUMN
-    ].astype("int64")
     publication_affiliations = affiliations.drop_duplicates(
         subset=[_PUBLICATION_EVENT_KEY_COLUMN, ARTICLE_AFFILIATION_ID_COLUMN]
     )
@@ -1097,8 +1138,8 @@ def first_year_affiliation_presence_estimate(
         .astype(int)
         .to_dict()
     )
-    counts = {int(affiliation_id): int(count) for affiliation_id, count in raw_counts.items()}
-    early_affiliation_ids = sorted(counts)
+    counts = {affiliation_id: int(count) for affiliation_id, count in raw_counts.items()}
+    early_affiliation_ids = sorted(counts, key=identifier_sort_key)
     return (
         early_affiliation_ids,
         dict(sorted(counts.items())),
@@ -1212,7 +1253,9 @@ def detect_inbreeding_proxy(
             manual_review_required=False,
             university_affiliation_ids=[],
             last_university_affiliation_overlap_ids=[],
-            estimated_first_affiliation_ids=sorted(normalized_int_set(first_set)),
+            estimated_first_affiliation_ids=sorted(
+                normalized_identifier_set(first_set), key=identifier_sort_key
+            ),
             estimated_first_affiliation_counts={},
             first_university_affiliation_overlap_ids=[],
             first_affiliation_publication_count_required=first_affiliation_publication_count,
@@ -1228,14 +1271,26 @@ def detect_inbreeding_proxy(
             target_in_early_window=None,
         )
 
-    university_affiliation_ids = scopus_affiliation_ids_for_universities(
-        professor_university_names(author_match)
-    )
+    uses_openalex_ids = profile_uses_openalex_ids(author_match)
+    university_affiliation_ids: list[int | str]
+    if uses_openalex_ids:
+        university_affiliation_ids = cast(
+            list[int | str], openalex_current_affiliation_ids(author_match)
+        )
+    else:
+        university_affiliation_ids = cast(
+            list[int | str],
+            scopus_affiliation_ids_for_universities(professor_university_names(author_match)),
+        )
     if not university_affiliation_ids:
         return InbreedingDetection(
             is_inbreeding_proxy=None,
             method="university_first_publication_affiliation",
-            status="manual_review_no_university_affiliation_mapping",
+            status=(
+                "manual_review_no_current_openalex_affiliation"
+                if uses_openalex_ids
+                else "manual_review_no_university_affiliation_mapping"
+            ),
             manual_review_required=True,
             university_affiliation_ids=[],
             last_university_affiliation_overlap_ids=[],
@@ -1257,7 +1312,7 @@ def detect_inbreeding_proxy(
 
     university_set = set(university_affiliation_ids)
     last_affiliation_ids = affiliation_set_at_date(group=prepared_group, date=last_date)
-    last_overlap = sorted(last_affiliation_ids & university_set)
+    last_overlap = sorted(last_affiliation_ids & university_set, key=identifier_sort_key)
 
     if min_history_met is False:
         return InbreedingDetection(
@@ -1310,7 +1365,7 @@ def detect_inbreeding_proxy(
             else None
         )
 
-    first_overlap = sorted(set(first_ids) & university_set)
+    first_overlap = sorted(set(first_ids) & university_set, key=identifier_sort_key)
     manual_review_required = first_status.startswith("manual_review")
 
     if manual_review_required:
@@ -1598,7 +1653,7 @@ def has_non_austrian_country(countries: set[str]) -> bool:
 
 
 def build_author_summary_row(
-    author_id: int,
+    author_id: int | str,
     author_match: pd.DataFrame,
     raw_group: pd.DataFrame,
     prepared_group: pd.DataFrame,
@@ -1776,7 +1831,7 @@ def academic_age_years(first_date: pd.Timestamp, last_date: pd.Timestamp) -> int
 
 
 def build_author_affiliation_rows(
-    author_id: int,
+    author_id: int | str,
     author_match: pd.DataFrame,
     prepared_group: pd.DataFrame,
 ) -> list[dict[str, Any]]:
@@ -1807,7 +1862,7 @@ def build_author_affiliation_rows(
     return rows
 
 
-def sorted_affiliation_groups(group: pd.DataFrame) -> list[tuple[int, pd.DataFrame]]:
+def sorted_affiliation_groups(group: pd.DataFrame) -> list[tuple[int | str, pd.DataFrame]]:
     """Group affiliation rows and order groups by latest observed date.
 
     :param group: Prepared publication-affiliation rows.
@@ -1815,9 +1870,7 @@ def sorted_affiliation_groups(group: pd.DataFrame) -> list[tuple[int, pd.DataFra
     """
     grouped = group.groupby(ARTICLE_AFFILIATION_ID_COLUMN, sort=False)
     ordered_ids = grouped[ARTICLE_COVER_DATE_COLUMN].max().sort_values(ascending=False).index
-    return [
-        (int(affiliation_id), grouped.get_group(affiliation_id)) for affiliation_id in ordered_ids
-    ]
+    return [(affiliation_id, grouped.get_group(affiliation_id)) for affiliation_id in ordered_ids]
 
 
 def unique_values(frame: pd.DataFrame, column: str) -> list[Any]:
@@ -1882,10 +1935,16 @@ def author_article_export(frame: pd.DataFrame) -> pd.DataFrame:
     if EID_COLUMN not in frame.columns or ARTICLE_AUTHOR_ID_COLUMN not in frame.columns:
         return pd.DataFrame()
     article_rows = frame.dropna(subset=[EID_COLUMN, ARTICLE_AUTHOR_ID_COLUMN]).copy()
-    author_ids = pd.to_numeric(article_rows[ARTICLE_AUTHOR_ID_COLUMN], errors="raise")
-    if not author_ids.mod(1).eq(0).all():
-        raise ValueError("Author identifiers in the article export must be integral.")
-    article_rows[ARTICLE_AUTHOR_ID_COLUMN] = author_ids.astype("int64")
+    author_values = article_rows[ARTICLE_AUTHOR_ID_COLUMN]
+    if author_values.map(
+        lambda value: isinstance(value, str) and value.startswith("https://openalex.org/A")
+    ).any():
+        article_rows[ARTICLE_AUTHOR_ID_COLUMN] = normalize_identifier_series(author_values)
+    else:
+        author_ids = pd.to_numeric(author_values, errors="raise")
+        if not author_ids.mod(1).eq(0).all():
+            raise ValueError("Author identifiers in the article export must be integral.")
+        article_rows[ARTICLE_AUTHOR_ID_COLUMN] = author_ids.astype("int64")
     if article_rows.empty:
         return article_rows
     sort_columns = [

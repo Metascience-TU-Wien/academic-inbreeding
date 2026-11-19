@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from acib.mobility.constants import (
     AUTHOR_AFFILIATIONS_FILENAME,
@@ -57,6 +58,7 @@ class MobilityConfig:
     :param researcher_metadata: Researcher metadata artifact from name matching.
     :param article_author: External article-author evidence dataset.
     :param affiliations: External GeoPackage affiliation dataset.
+    :param candidate_authors: Configured source-specific author input, when needed.
     :param outputs: Explicit paths for the three mobility artifacts.
     :param enable_university_affiliation_inbreeding_detection: Use the stricter
         university/early-affiliation inbreeding rule.
@@ -69,6 +71,8 @@ class MobilityConfig:
     :param first_affiliation_year_count: Number of years in the early window.
     :param min_publication_history_years: Optional minimum history length.
     :param max_workers: Maximum preprocessing/analysis worker processes.
+    :param openalex_scan_workers: Maximum concurrent OpenAlex Works batch workers.
+    :param source: Configured upstream author-data source.
     """
 
     authors: Path
@@ -84,6 +88,9 @@ class MobilityConfig:
     first_affiliation_year_count: int = 2
     min_publication_history_years: int | None = None
     max_workers: int = 3
+    openalex_scan_workers: int = 1
+    source: Literal["scopus", "openalex"] = "scopus"
+    candidate_authors: Path | None = None
 
     def __post_init__(self) -> None:
         """Validate mobility options without changing source defaults.
@@ -105,6 +112,10 @@ class MobilityConfig:
             raise ValueError("min_publication_history_years must be nonnegative or None")
         if self.max_workers < 1:
             raise ValueError("max_workers must be a positive integer")
+        if self.openalex_scan_workers < 1:
+            raise ValueError("openalex_scan_workers must be a positive integer")
+        if self.source == "openalex" and self.candidate_authors is None:
+            raise ValueError("OpenAlex mobility requires the configured candidate-author input")
         if len(set(self.outputs.all_paths())) != len(self.outputs.all_paths()):
             raise ValueError("Mobility output paths must be distinct")
 
@@ -114,7 +125,7 @@ class MobilityConfig:
         :raises FileNotFoundError: If a required external input or upstream
             artifact is absent.
         """
-        inputs = (
+        inputs: list[tuple[str, str, Path]] = [
             (
                 "[name_disambiguation.outputs].final_author_selection",
                 "name_disambiguation",
@@ -131,7 +142,15 @@ class MobilityConfig:
                 "external dataset",
                 self.affiliations,
             ),
-        )
+        ]
+        if self.source == "openalex" and self.candidate_authors is not None:
+            inputs.append(
+                (
+                    "[data].candidate_authors_file",
+                    "external dataset",
+                    self.candidate_authors,
+                )
+            )
         missing = [
             f"{key} (producer: {producer}): {path}"
             for key, producer, path in inputs
