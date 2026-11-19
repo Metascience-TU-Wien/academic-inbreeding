@@ -11,16 +11,16 @@ from tempfile import NamedTemporaryFile
 from urllib.request import urlopen
 
 _ZENODO_REGRESSION_INPUT_URL = (
-    "https://zenodo.org/records/23942533/files/author_regression_input.csv?download=1"
+    "https://zenodo.org/records/24377175/files/author_regression_input.csv?download=1"
 )
-_ZENODO_REGRESSION_INPUT_MD5 = "b26890811f6db913e1e6930efc1f1fb3"
+_ZENODO_REGRESSION_INPUT_MD5 = "cb8e7ef3ba437bd38d1aba13737d413f"
 
 
 def ensure_regression_input_available(
     regression_input_path: Path,
     repo_root: Path,
 ) -> None:
-    """Reuse or download the archived regression input at its canonical path.
+    """Reuse or download version 2 of the archived regression input.
 
     :param regression_input_path: Configured path owned by the regression stage.
     :param repo_root: Repository root used to make status messages relative.
